@@ -19,7 +19,8 @@
     "docs",
     "icon.svg",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "dsh": {
     "bundle": {
