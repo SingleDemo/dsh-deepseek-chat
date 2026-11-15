@@ -259,7 +259,8 @@ function main() {
   check('shows the settings action', text.indexOf('Settings') >= 0);
   check('shows the empty-rail hint', text.indexOf('No conversations yet') >= 0);
   check('shows the welcome headline', text.indexOf('What may I help you with?') >= 0);
-  check('shows the composer placeholder', fake.collectProp(tree, 'placeholder').indexOf('Add your DeepSeek API key in Settings first.') >= 0,
+  check('shows the missing-key hint', text.indexOf('Add your DeepSeek API key in Settings first.') >= 0);
+  check('shows the composer placeholder', fake.collectProp(tree, 'placeholder').indexOf('Send a message…') >= 0,
     fake.collectProp(tree, 'placeholder').join('|'));
   check('offers a textarea', fake.collectProp(tree, 'rows').length > 0);
   check('no UI string is missing from a dictionary', text.indexOf('MISSING:') < 0, text.slice(0, 200));

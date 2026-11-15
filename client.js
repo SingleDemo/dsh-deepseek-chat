@@ -830,6 +830,7 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   font-size: 12px;
   text-align: center;
 }
+.dsc-noticeRow { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
 
 .dsc-mdPara { margin: 0 0 10px; }
 .dsc-mdHeading { margin: 18px 0 8px; line-height: 1.35; font-weight: 600; }
@@ -1654,13 +1655,18 @@ h3.dsc-mdHeading { font-size: 15px; }
         h('div', { className: 'dsc-composerWrap' },
           notice ? h('div', { className: 'dsc-notice', role: 'status' }, notice) : null,
           savedNotice ? h('div', { className: 'dsc-notice', role: 'status' }, savedNotice) : null,
+          hasApiKey
+            ? null
+            : h('div', { className: 'dsc-notice dsc-noticeRow', role: 'status' },
+              h('span', null, t('missingKey')),
+              h('button', { type: 'button', className: 'dsc-plainAction', onClick: () => setSettingsOpen(true) }, t('settings'))),
           h('div', { className: 'dsc-composer' },
             h('textarea', {
               ref: inputRef,
               className: 'dsc-input',
               rows: 1,
               value: draft,
-              placeholder: hasApiKey ? t('placeholder') : t('missingKey'),
+              placeholder: t('placeholder'),
               'aria-label': t('placeholder'),
               onChange: (event) => setDraft(event.target.value),
               onKeyDown,
