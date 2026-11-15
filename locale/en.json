@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DeepSeek chat",
+    "description": "A focused DeepSeek chat panel in the main area, opened from the DeepSeek chat entry in the left sidebar. Chat with any DeepSeek API model through your own API key, with streaming replies, deep-thinking display, Markdown rendering, and locally stored conversations. Add the key under Settings inside the panel; it is saved in this browser's localStorage and never sent to the Host.",
+    "detail": "docs/DETAIL.md"
+  }
+}

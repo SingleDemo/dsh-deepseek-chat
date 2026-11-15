@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "DeepSeek 对话",
+    "description": "在主区域打开的 DeepSeek 对话面板，从左侧栏的「DeepSeek 对话」入口进入。使用自己的 API Key 与任意 DeepSeek API 模型对话：流式回复、深度思考展示、Markdown 渲染，对话保存在本地。在面板的「设置」中填入 API Key；它保存在本浏览器的 localStorage 中，不会发给 Host。",
+    "detail": "docs/DETAIL.zh.md"
+  }
+}
