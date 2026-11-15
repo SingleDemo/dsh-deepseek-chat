@@ -101,10 +101,15 @@ window.__ModuleLoader__.load({
       ocrEmpty: 'No text was recognized in that file',
       ocrFailed: 'OCR failed',
       ocrHint: 'PDF, Word, PowerPoint, or an image',
+      showAll: 'Show all',
+      collapse: 'Collapse',
+      jumpToLatest: 'Jump to latest',
       voice: 'Voice',
       voiceStella: 'Stella · female',
       voiceTide: 'Tide · male',
       speechHint: 'Voice input and read-aloud use your API key and appear on your bill.',
+      settingsConnection: 'Connection',
+      settingsSpeech: 'Speech',
     };
 
     const zh = {
@@ -172,10 +177,15 @@ window.__ModuleLoader__.load({
       ocrEmpty: '这个文件里没有识别到文字',
       ocrFailed: 'OCR 识别失败',
       ocrHint: '支持 PDF、Word、PowerPoint 或图片',
+      showAll: '显示全部',
+      collapse: '收起',
+      jumpToLatest: '跳到最新',
       voice: '音色',
       voiceStella: '海星 · 女声',
       voiceTide: '暗潮 · 男声',
       speechHint: '语音输入与朗读使用你的 API Key，会产生相应费用。',
+      settingsConnection: '连接',
+      settingsSpeech: '语音',
     };
 
     /* ----------------------------------------------------------------- utils */
@@ -287,7 +297,7 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------------------------------------- markdown */
 
-    const INLINE_PATTERN = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(\[[^\]\n]*\]\([^)\s]+\))|((?:https?:\/\/)[^\s<>()]+)|(\[\d{1,2}\])/g;
+    const INLINE_PATTERN = /(!\[[^\]\n]*\]\([^)\s]+\))|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(\[[^\]\n]*\]\([^)\s]+\))|((?:https?:\/\/)[^\s<>()]+)|(\[\d{1,2}\])/g;
 
     /** Build inline nodes (code, emphasis, links, citation chips) for one line of text. */
     function renderInline(text, keyPrefix, sources) {
@@ -302,7 +312,12 @@ window.__ModuleLoader__.load({
         const token = match[0];
         const key = keyPrefix + '-i' + index;
         index += 1;
-        if (token.charAt(0) === '`') {
+        if (token.charAt(0) === '!' && token.indexOf('](') > 2) {
+          const split = token.indexOf('](');
+          const alt = token.slice(2, split);
+          const src = token.slice(split + 2, -1);
+          nodes.push(h('img', { key, className: 'dsc-mdImage', src, alt: alt || '' }));
+        } else if (token.charAt(0) === '`') {
           nodes.push(h('code', { key, className: 'dsc-inlineCode' }, token.slice(1, -1)));
         } else if (token.startsWith('**') || token.startsWith('__')) {
           nodes.push(h('strong', { key }, token.slice(2, -2)));
@@ -348,6 +363,15 @@ window.__ModuleLoader__.load({
         /^\s*([-*+]|\d+[.)])\s+/.test(line) ||
         /^\s*([-*_])\s*(\1\s*){2,}$/.test(line)
       );
+    }
+
+    /** Read one markdown list marker from a line, if it starts a list item. */
+    function matchListItem(line) {
+      if (typeof line !== 'string') return null;
+      const match = line.match(/^\s*([-*+]|\d+[.)])\s+(.*)$/);
+      if (!match) return null;
+      const ordered = /\d/.test(match[1]);
+      return { ordered, number: ordered ? Number.parseInt(match[1], 10) : 1, text: match[2] };
     }
 
     /** Parse markdown into the small block vocabulary this panel renders. */
@@ -406,17 +430,22 @@ window.__ModuleLoader__.load({
           blocks.push({ type: 'quote', text: body.join('\n') });
           continue;
         }
-        const listItem = line.match(/^\s*([-*+]|\d+[.)])\s+(.*)$/);
+        const listItem = matchListItem(line);
         if (listItem) {
-          const ordered = /\d/.test(listItem[1]);
-          const items = [];
-          while (i < lines.length) {
-            const current = lines[i].match(/^\s*([-*+]|\d+[.)])\s+(.*)$/);
-            if (!current) break;
-            items.push(current[2]);
-            i += 1;
+          const ordered = listItem.ordered;
+          const start = listItem.number;
+          const items = [listItem.text];
+          i += 1;
+          for (;;) {
+            // A blank line does not end a list: models separate loose items with one.
+            let probe = i;
+            while (probe < lines.length && !lines[probe].trim()) probe += 1;
+            const next = matchListItem(lines[probe]);
+            if (!next || next.ordered !== ordered) break;
+            items.push(next.text);
+            i = probe + 1;
           }
-          blocks.push({ type: 'list', ordered, items });
+          blocks.push({ type: 'list', ordered, start, items });
           continue;
         }
         const paragraph = [line];
@@ -446,10 +475,68 @@ window.__ModuleLoader__.load({
       return blocks;
     }
 
-    /** One fenced code block with its language label and copy action. */
+    /* ---------------------------------------------------------- highlighting */
+
+    /** Keywords shared by the C-like languages this panel colors. */
+    const CODE_KEYWORDS = 'const|let|var|function|return|if|else|for|while|do|switch|case|break|continue|async|await|new|class|extends|implements|interface|type|enum|import|from|export|default|try|catch|finally|throw|typeof|instanceof|in|of|void|null|undefined|true|false|this|super|public|private|protected|readonly|static|as|is|yield|delete|def|elif|lambda|with|pass|raise|except|and|or|not|None|True|False|func|package|struct|map|chan|defer|go|select|fn|impl|pub|use|mut|match|echo|then|fi|done|esac';
+
+    /** Languages whose comments start with `#` rather than `//`. */
+    const HASH_COMMENT_LANGS = ['py', 'python', 'sh', 'bash', 'shell', 'zsh', 'yaml', 'yml', 'toml', 'rb', 'ruby', 'makefile', 'dockerfile', 'ini'];
+
+    /** Build the token pattern for one language. */
+    function tokenPattern(lang) {
+      const hashComment = HASH_COMMENT_LANGS.indexOf(String(lang).toLowerCase()) >= 0;
+      const parts = [
+        '(?<comment>\\/\\*[\\s\\S]*?\\*\\/|\\/\\/[^\\n]*' + (hashComment ? '|#[^\\n]*' : '') + ')',
+        '(?<string>`(?:\\\\.|[^`\\\\])*`|"(?:\\\\.|[^"\\\\\\n])*"|\'(?:\\\\.|[^\'\\\\\\n])*\')',
+        '(?<number>\\b\\d+(?:\\.\\d+)?\\b)',
+        '(?<keyword>\\b(?:' + CODE_KEYWORDS + ')\\b)',
+        '(?<fn>\\b[A-Za-z_$][\\w$]*(?=\\())',
+      ];
+      return new RegExp(parts.join('|'), 'g');
+    }
+
+    /** Highlights kept by source text so a streaming reply does not re-tokenize. */
+    const highlightCache = new Map();
+
+    /**
+     * Color one code block with theme tokens.
+     * @param code - the block body.
+     * @param lang - the fence language.
+     * @returns React nodes; plain text for unknown or large blocks.
+     */
+    function highlightCode(code, lang) {
+      if (!lang || code.length > 12000) return code;
+      const key = lang + '\u0000' + code;
+      const cached = highlightCache.get(key);
+      if (cached) return cached;
+      const pattern = tokenPattern(lang);
+      const nodes = [];
+      let last = 0;
+      let index = 0;
+      let match;
+      while ((match = pattern.exec(code)) !== null) {
+        if (match.index > last) nodes.push(code.slice(last, match.index));
+        const groups = match.groups || {};
+        const kind = groups.comment ? 'comment'
+          : groups.string ? 'string'
+            : groups.number ? 'number'
+              : groups.keyword ? 'keyword' : 'fn';
+        nodes.push(h('span', { key: 'k' + index, className: 'dsc-tok', 'data-kind': kind }, match[0]));
+        index += 1;
+        last = match.index + match[0].length;
+      }
+      if (last < code.length) nodes.push(code.slice(last));
+      if (highlightCache.size >= 40) highlightCache.clear();
+      highlightCache.set(key, nodes);
+      return nodes;
+    }
+
+    /** One fenced code block with its language label, copy action, and collapse for long bodies. */
     function CodeBlock(props) {
       const { code, lang, t } = props;
       const [copied, setCopied] = useState(false);
+      const [expanded, setExpanded] = useState(false);
       const copy = useCallback(() => {
         copyText(code).then((ok) => {
           if (!ok) return;
@@ -457,11 +544,21 @@ window.__ModuleLoader__.load({
           window.setTimeout(() => setCopied(false), 1400);
         });
       }, [code]);
+      const long = code.split('\n').length > 24;
       return h('div', { className: 'dsc-code' },
         h('div', { className: 'dsc-codeHead' },
           h('span', { className: 'dsc-codeLang' }, lang || 'text'),
           h('button', { type: 'button', className: 'dsc-codeCopy', onClick: copy }, copied ? t('copied') : t('copy'))),
-        h('pre', { className: 'dsc-codeBody' }, h('code', null, code)));
+        h('div', { className: 'dsc-codeScroll', 'data-clipped': long && !expanded ? 'true' : 'false' },
+          h('pre', { className: 'dsc-codeBody' }, h('code', null, highlightCode(code, lang)))),
+        long
+          ? h('button', {
+            type: 'button',
+            className: 'dsc-codeToggle',
+            'aria-expanded': expanded,
+            onClick: () => setExpanded((value) => !value),
+          }, expanded ? t('collapse') : t('showAll'))
+          : null);
     }
 
     /** Render markdown source as React nodes. */
@@ -483,7 +580,11 @@ window.__ModuleLoader__.load({
         }
         if (block.type === 'list') {
           const children = block.items.map((item, itemIndex) => h('li', { key: 'l' + itemIndex }, renderInline(item, key + '-l' + itemIndex, sources)));
-          return h(block.ordered ? 'ol' : 'ul', { key, className: 'dsc-mdList' }, children);
+          return h(block.ordered ? 'ol' : 'ul', {
+            key,
+            className: 'dsc-mdList',
+            start: block.ordered && block.start > 1 ? block.start : undefined,
+          }, children);
         }
         return h('p', { key, className: 'dsc-mdPara' }, renderInline(block.text, key, sources));
       });
@@ -995,7 +1096,19 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   text-transform: uppercase;
 }
 .dsc-railList { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; scrollbar-width: thin; }
-.dsc-railEmpty { padding: 10px 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
+.dsc-railEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 26px 14px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+.dsc-railEmptyMark { display: flex; opacity: 0.45; margin-bottom: 2px; }
+.dsc-railEmptyHint { font-size: 11.5px; opacity: 0.85; }
 .dsc-row {
   position: relative;
   display: flex;
@@ -1040,16 +1153,49 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-chatTitle { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsc-chatSub { color: var(--dsw-alias-label-secondary); font-size: 12px; font-weight: 400; margin-left: 8px; }
 
-.dsc-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
-.dsc-thread { width: 100%; max-width: 780px; margin: 0 auto; padding: 24px 24px 8px; }
-.dsc-welcome { max-width: 780px; margin: 0 auto; padding: 12vh 24px 24px; text-align: center; }
-.dsc-welcomeMark { display: inline-flex; width: 44px; height: 44px; margin-bottom: 14px; }
-.dsc-welcomeTitle { margin: 0 0 6px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
-.dsc-welcomeHint { margin: 0 0 22px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
+.dsc-scroll { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.dsc-scroll::-webkit-scrollbar, .dsc-railList::-webkit-scrollbar, .dsc-codeBody::-webkit-scrollbar, .dsc-tableWrap::-webkit-scrollbar { width: 10px; height: 10px; }
+.dsc-scroll::-webkit-scrollbar-thumb, .dsc-railList::-webkit-scrollbar-thumb,
+.dsc-codeBody::-webkit-scrollbar-thumb, .dsc-tableWrap::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-label-secondary) 30%, transparent);
+  background-clip: content-box;
+}
+.dsc-scroll::-webkit-scrollbar-thumb:hover, .dsc-railList::-webkit-scrollbar-thumb:hover,
+.dsc-codeBody::-webkit-scrollbar-thumb:hover, .dsc-tableWrap::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--dsw-alias-label-secondary) 48%, transparent);
+  background-clip: content-box;
+}
+.dsc-scroll::-webkit-scrollbar-track, .dsc-railList::-webkit-scrollbar-track,
+.dsc-codeBody::-webkit-scrollbar-track, .dsc-tableWrap::-webkit-scrollbar-track { background: transparent; }
+.dsc-thread { width: 100%; max-width: 720px; margin: 0 auto; padding: 22px 24px 8px; }
+.dsc-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  max-width: 720px;
+  margin: auto;
+  padding: 32px 24px;
+  text-align: center;
+}
+.dsc-welcomeMark { position: relative; display: inline-flex; width: 56px; height: 56px; margin-bottom: 20px; }
+.dsc-welcomeMark::before {
+  content: '';
+  position: absolute;
+  inset: -22px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--dsw-alias-brand-primary) 15%, transparent), transparent 70%);
+  pointer-events: none;
+}
+.dsc-welcomeTitle { margin: 0 0 8px; font-size: 24px; font-weight: 600; letter-spacing: -0.015em; }
+.dsc-welcomeHint { margin: 0 0 26px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
 .dsc-suggests { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 .dsc-suggest {
   max-width: 100%;
-  padding: 9px 14px;
+  padding: 10px 16px;
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 999px;
   background: transparent;
@@ -1057,11 +1203,17 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   font-size: 12.5px;
   cursor: pointer;
   text-align: left;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease, transform 120ms ease;
 }
-.dsc-suggest:hover { border-color: var(--dsw-alias-brand-primary); color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-1); }
+.dsc-suggest:hover {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-border-l1));
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-1);
+  transform: translateY(-1px);
+}
 
-.dsc-turn { margin-bottom: 26px; }
-.dsc-userRow { display: flex; justify-content: flex-end; margin-bottom: 18px; }
+.dsc-turn { margin-bottom: 28px; }
+.dsc-userRow { display: flex; justify-content: flex-end; margin-bottom: 20px; }
 .dsc-userBubble {
   max-width: min(78%, 560px);
   padding: 10px 14px;
@@ -1073,7 +1225,7 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-botRow { display: flex; flex-direction: column; gap: 8px; }
 .dsc-botHead { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
 .dsc-botMark { display: flex; width: 16px; height: 16px; flex: none; }
-.dsc-botName { font-weight: 600; color: var(--dsw-alias-label-primary); }
+.dsc-botName { font-size: 12.5px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .dsc-botActions { display: flex; gap: 2px; margin-left: auto; opacity: 0; transition: opacity 120ms ease; }
 .dsc-botRow:hover .dsc-botActions, .dsc-botRow:focus-within .dsc-botActions { opacity: 1; }
 .dsc-plainAction {
@@ -1112,6 +1264,8 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 }
 .dsc-stopNote { color: var(--dsw-alias-label-secondary); font-size: 12px; }
 
+.dsc-chev { transition: transform 140ms ease; }
+.dsc-chevOpen { transform: rotate(90deg); }
 .dsc-reasoning { margin: 2px 0 10px; }
 .dsc-reasoningToggle {
   display: inline-flex;
@@ -1145,17 +1299,40 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   overflow-wrap: anywhere;
 }
 
-.dsc-composerWrap { padding: 8px 24px 18px; }
-.dsc-composer {
-  max-width: 780px;
-  margin: 0 auto;
-  padding: 10px 10px 8px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 16px;
-  background: var(--dsw-alias-bg-layer-1);
-  transition: border-color 120ms ease;
+.dsc-composerWrap { position: relative; padding: 8px 24px 18px; }
+.dsc-jump {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 4px);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-overlay);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+  transform: translateX(-50%);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  transition: color 120ms ease, transform 120ms ease;
 }
-.dsc-composer:focus-within { border-color: var(--dsw-alias-brand-primary); }
+.dsc-jump:hover { color: var(--dsw-alias-label-primary); transform: translateX(-50%) translateY(-1px); }
+.dsc-composer {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px 12px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 18px;
+  background: var(--dsw-alias-bg-layer-1);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+.dsc-composer:focus-within {
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 55%, var(--dsw-alias-border-l2));
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.10);
+}
 .dsc-input {
   display: block;
   width: 100%;
@@ -1167,49 +1344,75 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   background: transparent;
   line-height: 1.6;
 }
-.dsc-composerBar { display: flex; align-items: center; gap: 8px; padding: 0 2px; }
-.dsc-composerHint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--dsw-alias-label-secondary); font-size: 11.5px; }
+.dsc-input:focus-visible { outline: none; }
+.dsc-composerBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  padding: 7px 2px 0;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+.dsc-composerHint {
+  flex: 1;
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.85;
+}
 .dsc-send {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   flex: none;
   border: 0;
   border-radius: 50%;
   background: var(--dsw-alias-brand-primary);
-  color: #fff;
+  color: var(--dsw-alias-bg-base);
   cursor: pointer;
+  transition: transform 120ms ease, opacity 120ms ease;
 }
-.dsc-send:disabled { background: var(--dsw-alias-state-idle-primary); cursor: default; }
-.dsc-send[data-stop='true'] { background: var(--dsw-alias-label-primary); }
+.dsc-send:hover:not(:disabled) { transform: scale(1.06); }
+.dsc-send:active:not(:disabled) { transform: scale(0.97); }
+.dsc-send:disabled { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-state-idle-primary); cursor: default; }
+.dsc-send[data-stop='true'] { background: var(--dsw-alias-label-primary); color: var(--dsw-alias-bg-base); }
 
-.dsc-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.dsc-tools { display: flex; align-items: center; gap: 4px; flex: none; }
 .dsc-toolWrap { position: relative; }
 .dsc-tool {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  padding: 0 8px;
+  height: 28px;
+  padding: 0 9px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 9px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   cursor: pointer;
   white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 .dsc-tool:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
-.dsc-tool:disabled { opacity: 0.5; cursor: default; }
+.dsc-tool:disabled { opacity: 0.45; cursor: default; }
 .dsc-tool[data-active='true'] {
-  border-color: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-brand-primary);
-  background: transparent;
+  border-color: color-mix(in srgb, var(--dsw-alias-brand-primary) 45%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 8%, transparent);
+  color: var(--dsw-alias-label-primary);
 }
+.dsc-tool[data-open='true'] { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsc-tool[data-dim='true'] { opacity: 0.62; }
 .dsc-tool[data-recording='true'] {
   border-color: var(--dsw-alias-state-error-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
   color: var(--dsw-alias-state-error-primary);
 }
 .dsc-toolLabel { font-variant-numeric: tabular-nums; }
@@ -1288,20 +1491,24 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-.dsc-cite { font-size: 0.72em; vertical-align: super; }
+.dsc-cite { font-size: 0.66em; line-height: 0; vertical-align: super; }
 .dsc-cite a {
   display: inline-block;
-  min-width: 13px;
-  padding: 0 3px;
-  border-radius: 4px;
-  background: var(--dsw-alias-bg-layer-2);
-  color: var(--dsw-alias-brand-primary);
+  margin-left: 2px;
+  padding: 0.16em 0.34em;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-label-secondary) 18%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
   text-decoration: none;
-  text-align: center;
+  transition: background 120ms ease, color 120ms ease;
 }
-.dsc-cite a:hover { text-decoration: underline; }
+.dsc-cite a:hover {
+  background: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-bg-base);
+}
 .dsc-notice {
-  max-width: 780px;
+  max-width: 720px;
   margin: 0 auto 8px;
   color: var(--dsw-alias-state-warn-primary);
   font-size: 12px;
@@ -1314,8 +1521,8 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 h1.dsc-mdHeading { font-size: 19px; }
 h2.dsc-mdHeading { font-size: 17px; }
 h3.dsc-mdHeading { font-size: 15px; }
-.dsc-mdList { margin: 0 0 10px; padding-left: 22px; }
-.dsc-mdList li { margin-bottom: 3px; }
+.dsc-mdList { margin: 0 0 12px; padding-left: 24px; }
+.dsc-mdList li { margin-bottom: 6px; }
 .dsc-mdQuote {
   margin: 0 0 10px;
   padding: 2px 0 2px 12px;
@@ -1323,6 +1530,7 @@ h3.dsc-mdHeading { font-size: 15px; }
   color: var(--dsw-alias-label-secondary);
 }
 .dsc-mdRule { margin: 14px 0; border: 0; border-top: 1px solid var(--dsw-alias-border-l1); }
+.dsc-mdImage { display: block; max-width: 100%; height: auto; margin: 6px 0 12px; border-radius: 10px; border: 1px solid var(--dsw-alias-border-l1); }
 .dsc-inlineCode {
   padding: 1px 5px;
   border-radius: 5px;
@@ -1360,10 +1568,38 @@ h3.dsc-mdHeading { font-size: 15px; }
   line-height: 1.55;
 }
 .dsc-codeBody code { white-space: pre; }
-.dsc-tableWrap { margin: 0 0 12px; overflow-x: auto; }
-.dsc-table { width: 100%; border-collapse: collapse; font-size: 0.95em; }
-.dsc-table th, .dsc-table td { padding: 6px 10px; border: 1px solid var(--dsw-alias-border-l1); text-align: left; }
-.dsc-table th { background: var(--dsw-alias-bg-layer-1); font-weight: 600; }
+.dsc-codeScroll { position: relative; }
+.dsc-codeScroll[data-clipped='true'] { max-height: 320px; overflow: hidden; }
+.dsc-codeScroll[data-clipped='true']::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0;
+  height: 68px;
+  background: linear-gradient(to bottom, transparent, var(--dsw-alias-bg-layer-1));
+  pointer-events: none;
+}
+.dsc-codeToggle {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.dsc-codeToggle:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsc-tok[data-kind='comment'] { color: var(--dsw-alias-label-secondary); font-style: italic; }
+.dsc-tok[data-kind='string'] { color: var(--dsw-alias-state-success-primary); }
+.dsc-tok[data-kind='number'] { color: var(--dsw-alias-state-warn-primary); }
+.dsc-tok[data-kind='keyword'] { color: var(--dsw-alias-brand-primary); font-weight: 600; }
+.dsc-tok[data-kind='fn'] { color: var(--dsw-alias-label-primary); }
+.dsc-tableWrap { margin: 0 0 14px; overflow-x: auto; }
+.dsc-table { width: 100%; border-collapse: collapse; font-size: 0.94em; }
+.dsc-table th, .dsc-table td { padding: 8px 12px; border: 0; border-bottom: 1px solid var(--dsw-alias-border-l1); text-align: left; vertical-align: top; }
+.dsc-table th { border-bottom-color: var(--dsw-alias-border-l2); font-weight: 600; }
+.dsc-table tbody tr:last-child td { border-bottom: 0; }
 
 .dsc-overlay {
   position: absolute;
@@ -1377,16 +1613,26 @@ h3.dsc-mdHeading { font-size: 15px; }
   background: var(--dsw-alias-bg-mask-1, rgba(0, 0, 0, 0.34));
 }
 .dsc-dialog {
-  width: min(460px, 100%);
+  width: min(480px, 100%);
   max-height: 100%;
   overflow-y: auto;
-  padding: 20px;
+  padding: 22px;
   border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--dsw-alias-bg-overlay);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 22px 56px rgba(0, 0, 0, 0.26);
 }
-.dsc-dialogTitle { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.dsc-dialogHead { display: flex; align-items: center; gap: 8px; }
+.dsc-dialogTitle { flex: 1; margin: 0; font-size: 16px; font-weight: 600; }
+.dsc-sectionTitle {
+  margin: 18px 0 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
 .dsc-dialogHint { margin: 0 0 16px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 1.5; }
 .dsc-field { margin-bottom: 14px; }
 .dsc-label { display: block; margin-bottom: 5px; font-size: 12px; font-weight: 500; }
@@ -1399,6 +1645,7 @@ h3.dsc-mdHeading { font-size: 15px; }
   background: var(--dsw-alias-bg-base);
 }
 .dsc-inputText:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
+.dsc-root select.dsc-inputText { height: 36px; appearance: auto; }
 .dsc-fieldHint { margin-top: 5px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsc-dialogFoot { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
 .dsc-dialogFoot .dsc-spacer { flex: 1; }
@@ -1413,7 +1660,7 @@ h3.dsc-mdHeading { font-size: 15px; }
 .dsc-button[data-primary='true'] {
   border-color: transparent;
   background: var(--dsw-alias-brand-primary);
-  color: #fff;
+  color: var(--dsw-alias-bg-base);
   font-weight: 500;
 }
 .dsc-button[data-primary='true']:hover { filter: brightness(1.05); }
@@ -1445,6 +1692,13 @@ h3.dsc-mdHeading { font-size: 15px; }
   .dsc-toolLabel { display: none; }
   .dsc-tool[data-active='true'] .dsc-toolLabel { display: inline; }
 }
+@media (max-height: 560px) {
+  .dsc-welcome { justify-content: flex-start; padding: 18px 20px; }
+  .dsc-welcomeMark { width: 40px; height: 40px; margin-bottom: 10px; }
+  .dsc-welcomeTitle { margin-bottom: 4px; font-size: 19px; }
+  .dsc-welcomeHint { margin-bottom: 12px; }
+  .dsc-suggest { padding: 7px 12px; font-size: 12px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .dsc-caret { animation: none; }
   .dsc-liveDot { animation: none; }
@@ -1465,16 +1719,20 @@ h3.dsc-mdHeading { font-size: 15px; }
         h('path', { d: 'M8 11.9h.01M12 11.9h.01M16 11.9h.01' }));
     }
 
-    /** The brand mark used inside the page (filled, brand colored). */
+    /** The brand mark used inside the page: a fixed blue identity that reads in both themes. */
     function BrandMark(props) {
       const size = props.size || 22;
       return h('svg', { viewBox: '0 0 64 64', width: size, height: size, 'aria-hidden': true, focusable: false },
-        h('rect', { x: 2, y: 2, width: 60, height: 60, rx: 17, fill: 'var(--dsw-alias-brand-primary)' }),
+        h('defs', null,
+          h('linearGradient', { id: 'dscBrandMark', x1: '0', y1: '0', x2: '1', y2: '1' },
+            h('stop', { offset: '0', stopColor: '#6E8CFF' }),
+            h('stop', { offset: '1', stopColor: '#3B54DE' }))),
+        h('rect', { x: 2, y: 2, width: 60, height: 60, rx: 17, fill: 'url(#dscBrandMark)' }),
         h('path', {
           d: 'M20 20.5h24a5.5 5.5 0 0 1 5.5 5.5v13.2a5.5 5.5 0 0 1-5.5 5.5H31.4L22.9 51.2a1 1 0 0 1-1.63-.78v-5.72H20a5.5 5.5 0 0 1-5.5-5.5V26A5.5 5.5 0 0 1 20 20.5Z',
-          fill: '#fff', fillOpacity: 0.95,
+          fill: '#FFFFFF', fillOpacity: 0.97,
         }),
-        h('g', { fill: 'var(--dsw-alias-brand-primary)' },
+        h('g', { fill: '#3A56E0' },
           h('circle', { cx: 25.4, cy: 32.6, r: 2.4 }),
           h('circle', { cx: 32, cy: 32.6, r: 2.4 }),
           h('circle', { cx: 38.6, cy: 32.6, r: 2.4 })));
@@ -1499,8 +1757,9 @@ h3.dsc-mdHeading { font-size: 15px; }
 
     function GearIcon() {
       return h('svg', { viewBox: '0 0 20 20', width: 15, height: 15, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
-        h('circle', { cx: 10, cy: 10, r: 2.6 }),
-        h('path', { d: 'M10 2.6v1.9M10 15.5v1.9M2.6 10h1.9M15.5 10h1.9M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4' }));
+        h('path', { d: 'M3 6.5h14M3 13.5h14' }),
+        h('circle', { cx: 7.5, cy: 6.5, r: 2.1, fill: 'var(--dsw-alias-bg-base)' }),
+        h('circle', { cx: 13, cy: 13.5, r: 2.1, fill: 'var(--dsw-alias-bg-base)' }));
     }
 
     function PanelToggleIcon() {
@@ -1561,6 +1820,27 @@ h3.dsc-mdHeading { font-size: 15px; }
         h('path', { d: 'M3 8.4l3.2 3.2L13 4.8' }));
     }
 
+    /** Disclosure chevron; rotates when its section is open. */
+    function ChevronIcon(props) {
+      return h('svg', {
+        viewBox: '0 0 12 12',
+        width: 9,
+        height: 9,
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth: 1.6,
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        'aria-hidden': true,
+        className: props.open ? 'dsc-chev dsc-chevOpen' : 'dsc-chev',
+      }, h('path', { d: 'M4.2 2.2 8 6l-3.8 3.8' }));
+    }
+
+    function CloseIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', 'aria-hidden': true },
+        h('path', { d: 'M4 4l8 8M12 4l-8 8' }));
+    }
+
     /* ------------------------------------------------------------ components */
 
     /** A media-query hook so the rail can become an overlay on narrow panels. */
@@ -1597,25 +1877,33 @@ h3.dsc-mdHeading { font-size: 15px; }
         },
           live ? h('span', { className: 'dsc-liveDot' }) : null,
           h('span', null, t(live ? 'thinkingLive' : 'thinkingDone')),
-          h('span', { 'aria-hidden': true }, open ? '–' : '+')),
+          h(ChevronIcon, { open })),
         open ? h('div', { className: 'dsc-reasoningBody' }, text) : null);
     }
 
-    /** Search results attached to one answer, collapsed to a summary by default. */
+    /** Keep one search snippet short enough to read at a glance. */
+    function clipSnippet(text) {
+      const flat = String(text).replace(/\s+/g, ' ').trim();
+      return flat.length > 150 ? flat.slice(0, 150) + '…' : flat;
+    }
+
+    /** Search results attached to one answer; collapsed while the answer is still streaming. */
     function Sources(props) {
-      const { sources, t } = props;
-      const [open, setOpen] = useState(sources.length <= 3);
+      const { sources, t, streaming } = props;
+      const [manual, setManual] = useState(null);
       if (!sources || !sources.length) return null;
+      const followDefault = !streaming && sources.length <= 4;
+      const open = manual === null ? followDefault : manual;
       return h('div', { className: 'dsc-sources' },
         h('button', {
           type: 'button',
           className: 'dsc-sourcesHead',
           'aria-expanded': open,
-          onClick: () => setOpen((value) => !value),
+          onClick: () => setManual(!open),
         },
           h(GlobeIcon),
           h('span', null, t('sources') + ' · ' + sources.length),
-          h('span', { 'aria-hidden': true }, open ? '–' : '+')),
+          h(ChevronIcon, { open })),
         open
           ? h('ol', { className: 'dsc-sourceList' }, sources.map((source, index) => h('li', { key: index, className: 'dsc-source' },
             h('a', {
@@ -1625,7 +1913,9 @@ h3.dsc-mdHeading { font-size: 15px; }
               rel: 'noreferrer noopener',
             }, (index + 1) + '. ' + (source.title || source.url)),
             source.site ? h('span', { className: 'dsc-sourceSite' }, source.site) : null,
-            source.snippet ? h('span', { className: 'dsc-sourceSnippet' }, source.snippet) : null)))
+            source.snippet
+              ? h('span', { className: 'dsc-sourceSnippet' }, renderInline(clipSnippet(source.snippet), 'src' + index))
+              : null)))
           : null);
     }
 
@@ -1666,7 +1956,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           : hasBody
             ? h('div', { className: 'dsc-botBody' }, renderMarkdown(message.content, t, message.id, sources), streaming ? h('span', { className: 'dsc-caret' }) : null)
             : streaming ? h('div', { className: 'dsc-botBody' }, h('span', { className: 'dsc-caret' })) : null,
-        h(Sources, { sources, t }),
+        h(Sources, { sources, t, streaming }),
         message.error ? h('div', { className: 'dsc-error', role: 'alert' }, t('error') + ': ' + message.error) : null,
         message.stopped && !message.error ? h('div', { className: 'dsc-stopNote' }, t('stopped')) : null);
     }
@@ -1782,8 +2072,17 @@ h3.dsc-mdHeading { font-size: 15px; }
             }
           },
         },
-          h('h2', { className: 'dsc-dialogTitle' }, t('settings')),
+          h('div', { className: 'dsc-dialogHead' },
+            h('h2', { className: 'dsc-dialogTitle' }, t('settings')),
+            h('button', {
+              type: 'button',
+              className: 'dsc-iconButton',
+              title: t('cancel'),
+              'aria-label': t('cancel'),
+              onClick: onClose,
+            }, h(CloseIcon))),
           h('p', { className: 'dsc-dialogHint' }, t('settingsHint')),
+          h('div', { className: 'dsc-sectionTitle' }, t('settingsConnection')),
           h('div', { className: 'dsc-field' },
             h('label', { className: 'dsc-label', htmlFor: 'dsc-api-key' }, t('apiKey')),
             h('input', {
@@ -1820,10 +2119,9 @@ h3.dsc-mdHeading { font-size: 15px; }
             }),
             h('datalist', { id: 'dsc-model-options' },
               h('option', { value: 'deepseek-flash' }),
-              h('option', { value: 'deepseek-v4-pro' }),
-              h('option', { value: 'deepseek-chat' }),
-              h('option', { value: 'deepseek-reasoner' })),
+              h('option', { value: 'deepseek-v4-pro' })),
             h('div', { className: 'dsc-fieldHint' }, t('modelHint'))),
+          h('div', { className: 'dsc-sectionTitle' }, t('settingsSpeech')),
           h('div', { className: 'dsc-field' },
             h('label', { className: 'dsc-label', htmlFor: 'dsc-voice' }, t('voice')),
             h('select', {
@@ -1873,13 +2171,13 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [settingsOpen, setSettingsOpen] = useState(false);
       const [renamingId, setRenamingId] = useState(null);
       const [streamingId, setStreamingId] = useState(null);
+      const [atBottom, setAtBottom] = useState(true);
       const [notice, setNotice] = useState('');
       const [savedNotice, setSavedNotice] = useState('');
       const [thinkMenuOpen, setThinkMenuOpen] = useState(false);
       const [recState, setRecState] = useState('idle');
       const [recSeconds, setRecSeconds] = useState(0);
-      const [ocrBusy, setOcrBusy] = useState(false);
-      const [ttsId, setTtsId] = useState(null);
+      const [ocrBusy, setOcrBusy] = useState(false);      const [ttsId, setTtsId] = useState(null);
       const [ttsPendingId, setTtsPendingId] = useState(null);
       const inputRef = useRef(null);
       const scrollRef = useRef(null);
@@ -1898,12 +2196,13 @@ h3.dsc-mdHeading { font-size: 15px; }
       );
       const busy = streamingId !== null;
 
-      /* Persist conversations, coalescing bursts while a reply streams. */
+      /* Persist conversations, coalescing bursts while a reply streams. An untouched
+         "new chat" stays in memory only, so it never becomes an empty row on reload. */
       useEffect(() => {
         if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
         saveTimerRef.current = window.setTimeout(() => {
           saveTimerRef.current = null;
-          writeJson(CONVERSATIONS_KEY, conversations);
+          writeJson(CONVERSATIONS_KEY, conversations.filter((item) => item.messages.length > 0));
         }, 300);
         return () => {
           if (saveTimerRef.current !== null) {
@@ -1940,7 +2239,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           if (audio.url) URL.revokeObjectURL(audio.url);
           ttsRef.current = null;
         }
-        writeJson(CONVERSATIONS_KEY, latestConversations.current);
+        writeJson(CONVERSATIONS_KEY, latestConversations.current.filter((item) => item.messages.length > 0));
       }, []);
 
       useEffect(() => {
@@ -1977,7 +2276,9 @@ h3.dsc-mdHeading { font-size: 15px; }
       const onScroll = useCallback(() => {
         const node = scrollRef.current;
         if (!node) return;
-        stickRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 60;
+        const near = node.scrollHeight - node.scrollTop - node.clientHeight < 80;
+        stickRef.current = near;
+        setAtBottom((previous) => (previous === near ? previous : near));
       }, []);
 
       const updateConversation = useCallback((id, updater) => {
@@ -2450,7 +2751,10 @@ h3.dsc-mdHeading { font-size: 15px; }
         h('div', { className: 'dsc-railSection' }, t('railTitle')),
         h('div', { className: 'dsc-railList' },
           conversations.length === 0
-            ? h('div', { className: 'dsc-railEmpty' }, t('railEmpty'), h('br'), h('span', null, t('railEmptyHint')))
+            ? h('div', { className: 'dsc-railEmpty' },
+              h('span', { className: 'dsc-railEmptyMark' }, h(PanelIcon, { size: 20 })),
+              h('span', null, t('railEmpty')),
+              h('span', { className: 'dsc-railEmptyHint' }, t('railEmptyHint')))
             : sortConversations(conversations).map((conversation) => h(ConversationRow, {
               key: conversation.id,
               conversation,
@@ -2558,7 +2862,8 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('button', {
                 type: 'button',
                 className: 'dsc-tool',
-                'data-active': settings.thinking !== 'off' ? 'true' : 'false',
+                'data-open': thinkMenuOpen ? 'true' : 'false',
+                'data-dim': settings.thinking === 'off' ? 'true' : 'false',
                 'aria-haspopup': 'menu',
                 'aria-expanded': thinkMenuOpen ? 'true' : 'false',
                 title: t('thinking'),
@@ -2569,7 +2874,6 @@ h3.dsc-mdHeading { font-size: 15px; }
               type: 'button',
               className: 'dsc-tool',
               'data-recording': recState === 'recording' ? 'true' : 'false',
-              'data-active': recState !== 'idle' ? 'true' : 'false',
               title: recState === 'recording' ? t('listening') : t('voiceInput'),
               disabled: recState === 'transcribing',
               onClick: toggleRecording,
@@ -2579,13 +2883,13 @@ h3.dsc-mdHeading { font-size: 15px; }
             h('button', {
               type: 'button',
               className: 'dsc-tool',
-              title: t('ocrHint'),
+              title: ocrBusy ? t('ocrWorking') : t('ocrHint'),
               disabled: ocrBusy,
               onClick: () => {
                 const node = fileRef.current;
                 if (node) node.click();
               },
-            }, h(FileIcon), h('span', { className: 'dsc-toolLabel' }, ocrBusy ? t('ocrWorking') : t('ocr'))),
+            }, h(FileIcon), h('span', { className: 'dsc-toolLabel' }, ocrBusy ? t('ocrWorking') : 'OCR')),
             h('input', {
               ref: fileRef,
               type: 'file',
@@ -2596,7 +2900,7 @@ h3.dsc-mdHeading { font-size: 15px; }
                 if (file) runOcr(file);
               },
             })),
-          h('span', { className: 'dsc-composerHint' }, t('welcomeHint')),
+          h('span', { className: 'dsc-composerHint' }, draft.trim() ? '' : t('welcomeHint')),
           busy
             ? h('button', {
               type: 'button',
@@ -2647,6 +2951,18 @@ h3.dsc-mdHeading { font-size: 15px; }
           }, h(GearIcon))),
         h('div', { className: 'dsc-scroll', ref: scrollRef, onScroll }, thread),
         h('div', { className: 'dsc-composerWrap' },
+          atBottom || !messages.length
+            ? null
+            : h('button', {
+              type: 'button',
+              className: 'dsc-jump',
+              onClick: () => {
+                stickRef.current = true;
+                setAtBottom(true);
+                const node = scrollRef.current;
+                if (node) node.scrollTop = node.scrollHeight;
+              },
+            }, h('span', { 'aria-hidden': true }, '↓'), h('span', null, t('jumpToLatest'))),
           notice ? h('div', { className: 'dsc-notice', role: 'status' }, notice) : null,
           savedNotice ? h('div', { className: 'dsc-notice', role: 'status' }, savedNotice) : null,
           hasApiKey

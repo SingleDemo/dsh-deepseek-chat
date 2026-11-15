@@ -9,6 +9,12 @@ a thread with streamed Markdown replies in the middle, and one composer at the
 bottom. It talks to the DeepSeek API directly from the browser with your own
 key and keeps conversations in `localStorage`.
 
+![The chat panel: a conversation rail, a search-backed answer with citations, and the composer toolbar](docs/screenshots/answer.png)
+
+| New chat | Settings |
+| --- | --- |
+| ![The empty panel with the assistant above the composer](docs/screenshots/welcome.png) | ![The settings dialog with connection and speech sections](docs/screenshots/settings.png) |
+
 ## Where it appears
 
 - **Left sidebar** — a chat glyph labelled *DeepSeek chat* (中文：*DeepSeek 对话*).

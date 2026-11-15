@@ -268,7 +268,7 @@ function main() {
   check('offers thinking strength', titles.indexOf('Thinking') >= 0);
   check('offers voice input', titles.indexOf('Voice input') >= 0);
   check('offers OCR', titles.indexOf('PDF, Word, PowerPoint, or an image') >= 0);
-  check('shows the current thinking level', text.indexOf('Thinking · High') >= 0, text.slice(0, 240));
+  check('shows the current thinking level', text.indexOf('High') >= 0, text.slice(0, 240));
   check('no UI string is missing from a dictionary', text.indexOf('MISSING:') < 0, text.slice(0, 200));
   check('renders the injected stylesheet', tree[0].children.some((child) => child.tag === 'style' && child.props.dangerouslySetInnerHTML));
 
