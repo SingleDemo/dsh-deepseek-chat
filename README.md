@@ -6,8 +6,9 @@ into the DeepSeek Harness Web GUI.
 
 The page is a focused, self-contained chat client: conversations on the left,
 a thread with streamed Markdown replies in the middle, and one composer at the
-bottom. It talks to the DeepSeek API directly from the browser with your own
-key and keeps conversations in `localStorage`.
+bottom. It speaks the same Anthropic-compatible Messages surface as the demo —
+`/anthropic/v1/messages` plus the Files API — from the browser with your own
+key, and keeps conversations in `localStorage`.
 
 ![The chat panel: a conversation rail, a search-backed answer with citations, and the composer toolbar](docs/screenshots/answer.png)
 
@@ -32,15 +33,19 @@ key and keeps conversations in `localStorage`.
    **model** (`deepseek-flash` by default), and the read-aloud **voice**.
 3. Type in the composer. **Enter** sends, **Shift+Enter** starts a new line.
    While a reply streams the send button becomes **Stop**.
+4. Attach work the way the demo does: **drag files onto the panel**, **paste**
+   them into the composer, or use the paperclip. Images and documents upload
+   through the Files API and the model reads them directly — there is no
+   separate OCR step.
 
 The composer toolbar carries one control per capability:
 
 | Control | What it does |
 | --- | --- |
-| **Web search** | Searches before answering and lists numbered sources under the reply; the model cites them as `[1]`, `[2]` links. |
-| **Thinking · high** | Picks the reasoning strength: off, low, high, or max (`thinking` + `reasoning_effort` on the request). |
+| **Web search** | Declares the server-side `deepseek_web_search` tool; the model decides when to search, answers with numbered citations, and the reply lists its sources. Link reading (`deepseek_read_url`) is always declared. |
+| **Thinking · high** | Picks the reasoning strength: off, low, high, or max (`thinking` and `output_config.effort` on the Messages request). |
 | **Microphone** | Records up to 110 seconds, transcribes it with ASR, and drops the text into the draft. |
-| **Scan text (OCR)** | Reads a PDF, Word, PowerPoint, or image and puts the recognized text into the draft. Pasting an image does the same. |
+| **Add files** | Same as drag, paste, or the picker: up to 10 attachments per message, 64 MB each (32 MB for plain-text uploads). |
 | **Read aloud** | On each answer: synthesizes speech with TTS and plays it; press again to stop. |
 
 Conversations are created automatically on the first message, titled from its
@@ -49,17 +54,20 @@ Each reply also offers **Copy** and **Regenerate**.
 
 ## Features
 
-- Streaming replies over SSE, with a stop control and inline error text.
-- Thinking mode: reasoning effort off / low / high / max, with the reasoning
-  shown in a collapsible block.
-- Web search through `/v1/tools/search`: a numbered source list per answer and
-  inline `[n]` citations that open the page.
+- Streaming replies over the Messages API, folded from `content_block_delta`
+  events, with a stop control and inline error text.
+- Thinking mode: reasoning on/off plus effort off / low / high / max, with the
+  reasoning shown in a collapsible block.
+- Attachments through `/anthropic/v1/files`: images become `image` blocks,
+  PDFs/Word/PowerPoint upload for page layout recognition and become `document`
+  blocks, everything else uploads as user data. File chips show upload state and
+  can be retried or removed; sent messages keep their chips.
+- Native web tools: `deepseek_web_search` (toggled) and `deepseek_read_url`,
+  with inline citation chips and a deduplicated source list.
 - Speech: `/v1/tools/asr` for voice input (Ogg Opus, or WAV resampled to
   16 kHz in the browser) and `/v1/tools/tts` for read-aloud.
-- OCR through `/v1/tools/ocr` for PDF, Word, PowerPoint, and images, by picker
-  or clipboard paste.
-- Markdown: headings, lists, quotes, tables, links, inline code, and fenced
-  code blocks with a copy button.
+- Markdown: headings, lists, quotes, tables, links, images, inline code, and
+  fenced code blocks with theme-token highlighting and a copy button.
 - Simplified Chinese and English through the host locale service; light and
   dark themes through the host design tokens.
 - A conversation rail that becomes an overlay on narrow panels.
@@ -68,13 +76,13 @@ Each reply also offers **Copy** and **Regenerate**.
 
 - The API key, base URL, model, voice, thinking level, and conversations live
   in this browser's `localStorage` (`dsh.deepseekChat.settings.v1`,
-  `dsh.deepseekChat.conversations.v1`).
-- The key is sent only to the configured API base URL, as the `Authorization`
-  header of each request. Nothing is sent to the DSH Host, and no other plugin
-  reads it.
-- Web search sends your question as the search `query`; OCR uploads the picked
-  file; voice input uploads the recording; read-aloud uploads the answer text.
-  All four go to the same API base URL and appear on your bill.
+  `dsh.deepseekChat.conversations.v1`). Conversations store the file ids of
+  their attachments, not the file bytes.
+- The key is sent only to the configured API base URL, as the `x-api-key`
+  header. Nothing is sent to the DSH Host, and no other plugin reads it.
+- Attachments, recordings, answer text for read-aloud, and search queries go to
+  the same API base URL and appear on your bill. Uploaded files stay on the API
+  service; removing a chip only stops it from being sent.
 - Clearing site data, or **Delete all conversations** in Settings, removes the
   local data. Requests already sent to the API service are not recalled.
 - Turning the plugin off hides the entry and the page; it does not delete the
@@ -102,21 +110,25 @@ The bundle is a plain package: no build step, no dependencies, no Host code.
 ## Known limits
 
 - One API key per browser profile; no per-conversation model.
-- Web search is client-side: one `/v1/tools/search` call per message, then the
-  results are passed to the model as context. The model does not decide when
-  to search, and it cannot open pages beyond those snippets.
+- The plugin needs an API base URL that serves the Anthropic-compatible
+  surface (`/anthropic/v1/messages`, `/anthropic/v1/files`); a proxy that only
+  speaks OpenAI-style `/chat/completions` will not work.
+- Web search, link reading, and document parsing are server-side: the model
+  decides when to search, and search results stay out of later turns' context.
+- Attachments are capped at 10 per message, 64 MB each (32 MB for plain-text
+  uploads), by extension whitelist like the demo. Files already uploaded stay
+  on the service even when removed from a message.
 - Voice input needs microphone permission for the Harness window, and stops at
   110 seconds because the ASR endpoint accepts at most 120.
-- OCR keeps only the recognized text; the original file is not stored.
 - Read-aloud speaks one answer at a time and caps the text at 9,000 characters.
-- Attachments, chat history import/export, and math/diagram rendering from the
+- Chat history import/export, branching, and math/diagram rendering from the
   original demo are not part of this version.
 - Long histories are kept whole in memory and in `localStorage`; very large
   archives can exceed the storage quota, in which case the newest state is
   kept in memory only.
 - Direct browser calls require an API service that allows cross-origin
-  requests from this GUI's origin. `api.deepseek.com` does for chat, search,
-  OCR, ASR, and TTS.
+  requests from this GUI's origin. `api.deepseek.com` does for the Messages
+  API, the Files API, search, OCR, ASR, and TTS.
 
 ## License
 

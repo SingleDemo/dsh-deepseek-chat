@@ -25,7 +25,11 @@ window.__ModuleLoader__.load({
     const CONVERSATIONS_KEY = 'dsh.deepseekChat.conversations.v1';
     const DEFAULT_BASE_URL = 'https://api.deepseek.com';
     const DEFAULT_MODEL = 'deepseek-flash';
-    /** Thinking levels accepted by `reasoning_effort`; `off` disables the mode. */
+    /** The Anthropic-compatible surface the demo also uses; files need its beta header. */
+    const MESSAGES_PATH = '/anthropic/v1/messages';
+    const FILES_PATH = '/anthropic/v1/files';
+    const FILES_BETA = 'files-api-2025-04-14';
+    /** Thinking levels accepted by the Messages API; `off` disables the mode. */
     const THINKING_LEVELS = ['off', 'low', 'high', 'max'];
     /** TTS voices offered by the speech API. */
     const TTS_VOICES = ['stella', 'tide'];
@@ -33,6 +37,20 @@ window.__ModuleLoader__.load({
     const TTS_MAX_CHARS = 9000;
     /** The ASR API caps one upload at 120 seconds and 8 MiB. */
     const RECORDING_LIMIT_SECONDS = 110;
+    /** Attachment limits mirrored from the demo and the Files API. */
+    const MAX_ATTACHMENTS = 10;
+    const MAX_FILE_MB = 64;
+    const MAX_USER_DATA_MB = 32;
+    /** Documents the service parses page by page; other files upload as user data. */
+    const LAYOUT_EXTS = ['pdf', 'doc', 'docx', 'ppt', 'pptx'];
+    /** Extensions accepted for attachments; images are additionally matched by MIME. */
+    const ACCEPTED_EXTS = [
+      'pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv',
+      'txt', 'md', 'html', 'htm', 'json', 'log', 'xml', 'yaml', 'yml', 'ini', 'conf',
+      'go', 'h', 'c', 'cpp', 'cc', 'cs', 'java', 'js', 'jsx', 'ts', 'tsx', 'mjs',
+      'css', 'scss', 'less', 'php', 'py', 'rb', 'rs', 'swift', 'kt', 'sh', 'sql', 'vue', 'svelte',
+      'svg', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'avif', 'ico',
+    ];
 
     /* ------------------------------------------------------------------ copy */
 
@@ -95,12 +113,22 @@ window.__ModuleLoader__.load({
       speak: 'Read aloud',
       stopReading: 'Stop reading',
       speakFailed: 'Could not synthesize speech',
-      ocr: 'Scan text (OCR)',
-      ocrWorking: 'Recognizing text…',
-      ocrDone: 'Text recognized and added to the draft',
-      ocrEmpty: 'No text was recognized in that file',
-      ocrFailed: 'OCR failed',
-      ocrHint: 'PDF, Word, PowerPoint, or an image',
+      attach: 'Add files',
+      attachHint: 'Drop files here, paste, or pick them',
+      dropHere: 'Drop files to attach',
+      uploadFailed: 'Upload failed',
+      uploadRetry: 'Retry upload',
+      uploading: 'Uploading…',
+      attachUnsupported: 'Unsupported file type',
+      attachTooLarge: 'Files must be at most {size} MB',
+      attachTooMany: 'At most {count} files per message',
+      removeAttachment: 'Remove',
+      attachmentOnly: 'Send the attachment',
+      image: 'image',
+      searchQueries: 'Searched the web',
+      readPages: 'Read pages',
+      citations: 'Citations',
+      thinkingEffort: 'Effort',
       showAll: 'Show all',
       collapse: 'Collapse',
       jumpToLatest: 'Jump to latest',
@@ -171,12 +199,22 @@ window.__ModuleLoader__.load({
       speak: '朗读',
       stopReading: '停止朗读',
       speakFailed: '语音合成失败',
-      ocr: '识别文字（OCR）',
-      ocrWorking: '正在识别文字…',
-      ocrDone: '已识别，文字已加入输入框',
-      ocrEmpty: '这个文件里没有识别到文字',
-      ocrFailed: 'OCR 识别失败',
-      ocrHint: '支持 PDF、Word、PowerPoint 或图片',
+      attach: '添加附件',
+      attachHint: '拖入、粘贴或选择文件',
+      dropHere: '松开以添加附件',
+      uploadFailed: '上传失败',
+      uploadRetry: '重新上传',
+      uploading: '上传中…',
+      attachUnsupported: '不支持这个文件类型',
+      attachTooLarge: '单个文件不能超过 {size} MB',
+      attachTooMany: '每条消息最多 {count} 个文件',
+      removeAttachment: '移除',
+      attachmentOnly: '发送附件',
+      image: '图片',
+      searchQueries: '联网搜索',
+      readPages: '阅读网页',
+      citations: '引用',
+      thinkingEffort: '强度',
       showAll: '显示全部',
       collapse: '收起',
       jumpToLatest: '跳到最新',
@@ -230,9 +268,72 @@ window.__ModuleLoader__.load({
         baseUrl: typeof stored.baseUrl === 'string' && stored.baseUrl ? stored.baseUrl : DEFAULT_BASE_URL,
         model: typeof stored.model === 'string' && stored.model ? stored.model : DEFAULT_MODEL,
         thinking: THINKING_LEVELS.indexOf(stored.thinking) >= 0 ? stored.thinking : 'high',
-        webSearch: stored.webSearch === true,
+        webSearch: stored.webSearch !== false,
         voice: TTS_VOICES.indexOf(stored.voice) >= 0 ? stored.voice : 'stella',
       };
+    }
+
+    /** Keep only the reply blocks this panel knows how to draw. */
+    function sanitizeBlocks(raw) {
+      if (!Array.isArray(raw)) return [];
+      const out = [];
+      for (let i = 0; i < raw.length; i += 1) {
+        const item = raw[i];
+        if (!item || typeof item.type !== 'string') continue;
+        if (item.type === 'text') {
+          out.push({
+            type: 'text',
+            text: typeof item.text === 'string' ? item.text : '',
+            citations: Array.isArray(item.citations)
+              ? item.citations.filter((c) => c && typeof c.url === 'string')
+                .map((c) => ({ url: c.url, title: typeof c.title === 'string' ? c.title : '' }))
+              : [],
+          });
+        } else if (item.type === 'thinking') {
+          out.push({ type: 'thinking', text: typeof item.text === 'string' ? item.text : '' });
+        } else if (item.type === 'tool') {
+          out.push({
+            type: 'tool',
+            kind: typeof item.kind === 'string' ? item.kind : 'search',
+            queries: Array.isArray(item.queries) ? item.queries.filter((q) => typeof q === 'string') : [],
+            url: typeof item.url === 'string' ? item.url : '',
+          });
+        } else if (item.type === 'sources') {
+          out.push({
+            type: 'sources',
+            items: Array.isArray(item.items)
+              ? item.items.filter((s) => s && typeof s.url === 'string')
+                .map((s) => ({
+                  title: typeof s.title === 'string' ? s.title : '',
+                  url: s.url,
+                  snippet: typeof s.snippet === 'string' ? s.snippet : '',
+                  site: typeof s.site === 'string' ? s.site : '',
+                }))
+              : [],
+          });
+        } else if (item.type === 'fetch') {
+          out.push({ type: 'fetch', urls: Array.isArray(item.urls) ? item.urls.filter((u) => typeof u === 'string') : [] });
+        }
+      }
+      return out;
+    }
+
+    /** Keep only uploaded attachments; pending uploads never reach storage. */
+    function sanitizeAttachments(raw) {
+      if (!Array.isArray(raw)) return [];
+      const out = [];
+      for (let i = 0; i < raw.length; i += 1) {
+        const item = raw[i];
+        if (!item || typeof item.fileId !== 'string' || typeof item.name !== 'string') continue;
+        out.push({
+          id: typeof item.id === 'string' ? item.id : uid(),
+          name: item.name,
+          size: typeof item.size === 'number' ? item.size : 0,
+          isImage: item.isImage === true,
+          fileId: item.fileId,
+        });
+      }
+      return out;
     }
 
     /** Stored conversations, dropping anything that cannot render. */
@@ -251,24 +352,24 @@ window.__ModuleLoader__.load({
           updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : Date.now(),
           messages: messages
             .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
-            .map((m) => ({
-              id: typeof m.id === 'string' ? m.id : uid(),
-              role: m.role,
-              content: typeof m.content === 'string' ? m.content : '',
-              reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
-              error: typeof m.error === 'string' ? m.error : '',
-              stopped: m.stopped === true,
-              sources: Array.isArray(m.sources)
-                ? m.sources
-                  .filter((s) => s && typeof s.url === 'string')
-                  .map((s) => ({
-                    title: typeof s.title === 'string' ? s.title : '',
-                    url: s.url,
-                    snippet: typeof s.snippet === 'string' ? s.snippet : '',
-                    site: typeof s.site === 'string' ? s.site : '',
-                  }))
-                : [],
-            })),
+            .map((m) => {
+              if (m.role === 'user') {
+                return {
+                  id: typeof m.id === 'string' ? m.id : uid(),
+                  role: 'user',
+                  text: typeof m.text === 'string' ? m.text : '',
+                  attachments: sanitizeAttachments(m.attachments),
+                };
+              }
+              const blocks = sanitizeBlocks(m.blocks);
+              return {
+                id: typeof m.id === 'string' ? m.id : uid(),
+                role: 'assistant',
+                blocks,
+                status: m.status === 'done' || m.status === 'stopped' || m.status === 'error' ? m.status : (blocks.length ? 'done' : 'error'),
+                error: typeof m.error === 'string' ? m.error : '',
+              };
+            }),
         });
       }
       return list;
@@ -329,7 +430,19 @@ window.__ModuleLoader__.load({
           const split = token.indexOf('](');
           const label = token.slice(1, split);
           const href = token.slice(split + 2, -1);
-          nodes.push(h('a', { key, href, target: '_blank', rel: 'noreferrer noopener' }, label || href));
+          if (href.indexOf('cite:') === 0) {
+            // A citation marker this panel injected; it renders as a superscript chip.
+            let url = href.slice(5);
+            try {
+              url = decodeURIComponent(url);
+            } catch (error) {
+              /* keep the raw value */
+            }
+            nodes.push(h('sup', { key, className: 'dsc-cites' },
+              h('a', { href: url, target: '_blank', rel: 'noreferrer noopener', title: url }, label.replace(/^c/, ''))));
+          } else {
+            nodes.push(h('a', { key, href, target: '_blank', rel: 'noreferrer noopener' }, label || href));
+          }
         } else if (/^\[\d{1,2}\]$/.test(token)) {
           const number = Number(token.slice(1, -1));
           const source = sources && sources[number - 1];
@@ -621,13 +734,12 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** The chat and tool endpoints derived from one base URL. */
+    /** The endpoints derived from one base URL. */
     function endpoints(baseUrl) {
       const base = String(baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
       return {
-        chat: base + '/chat/completions',
-        search: base + '/v1/tools/search',
-        ocr: base + '/v1/tools/ocr',
+        messages: base + MESSAGES_PATH,
+        files: base + FILES_PATH,
         asr: base + '/v1/tools/asr',
         tts: base + '/v1/tools/tts',
       };
@@ -648,107 +760,124 @@ window.__ModuleLoader__.load({
       return 'HTTP ' + status;
     }
 
+    /** Identity text the original demo also sends with every request. */
+    const SYSTEM_PROMPT = '你是 DeepSeek，由深度求索公司创造的 AI 助手。请用与提问相同的语言回答。';
+
+    /** Auth headers for the Anthropic-compatible surface. */
+    function apiHeaders(settings, beta) {
+      const headers = { 'x-api-key': String(settings.apiKey).trim() };
+      if (beta) headers['anthropic-beta'] = FILES_BETA;
+      return headers;
+    }
+
+    /** Server-side tools declared for one request; link reading always rides along. */
+    function serverTools(search) {
+      const tools = [{ type: 'deepseek_read_url', name: 'deepseek_read_url' }];
+      if (search) tools.push({ type: 'deepseek_web_search', name: 'deepseek_web_search' });
+      return tools;
+    }
+
+    /** True when a request carries file blocks; the Files beta header is then required. */
+    function hasFiles(messages) {
+      return messages.some((message) => Array.isArray(message.content)
+        && message.content.some((block) => block && (block.type === 'image' || block.type === 'document')));
+    }
+
     /**
-     * Stream one assistant reply.
+     * Stream one reply through the Anthropic-compatible Messages API.
+     * Yields the raw stream events; the caller folds them into its message.
      * @param options.settings - resolved API settings.
-     * @param options.messages - conversation history as `{ role, content }`.
+     * @param options.messages - request messages built by `requestMessages`.
+     * @param options.search - declare the server-side web search tool.
      * @param options.signal - abort signal owned by the caller.
-     * @param options.onDelta - receives `{ content, reasoning }` increments.
      */
-    async function streamReply(options) {
-      const { settings, messages, signal, onDelta } = options;
-      const body = { model: settings.model, messages, stream: true };
-      // Thinking mode defaults to on at `high` on the service; only send what the
-      // user chose so an older model that rejects the fields keeps working.
-      if (settings.thinking === 'off') body.thinking = { type: 'disabled' };
-      else if (THINKING_LEVELS.indexOf(settings.thinking) > 0) {
-        body.thinking = { type: 'enabled' };
-        body.reasoning_effort = settings.thinking;
-      }
-      const response = await fetch(endpoints(settings.baseUrl).chat, {
+    async function* streamMessage(options) {
+      const { settings, messages, search, signal } = options;
+      const body = {
+        model: settings.model,
+        system: SYSTEM_PROMPT,
+        messages,
+        thinking: { type: settings.thinking === 'off' ? 'disabled' : 'enabled' },
+        safety_check: { level: 'high' },
+        tools: serverTools(search),
+        stream: true,
+      };
+      // The service documents `output_config.effort` for the Anthropic surface;
+      // an unsupported field is ignored rather than rejected.
+      if (settings.thinking !== 'off') body.output_config = { effort: settings.thinking };
+      const response = await fetch(endpoints(settings.baseUrl).messages, {
         method: 'POST',
         signal,
-        headers: {
+        headers: Object.assign({}, apiHeaders(settings, hasFiles(messages)), {
           'content-type': 'application/json',
           accept: 'text/event-stream',
-          authorization: 'Bearer ' + String(settings.apiKey).trim(),
-        },
+        }),
         body: JSON.stringify(body),
       });
       if (!response.ok) {
-        let body = '';
+        let text = '';
         try {
-          body = await response.text();
+          text = await response.text();
         } catch (error) {
-          body = '';
+          text = '';
         }
-        throw new Error(describeFailure(response.status, body));
+        throw new Error(describeFailure(response.status, text));
       }
       if (!response.body || !response.body.getReader) {
         const text = await response.text();
-        const parsed = parseWholeBody(text);
-        onDelta(parsed);
+        yield* eventsFromBody(text);
         return;
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
-      let finish = false;
-      while (!finish) {
+      let finished = false;
+      while (!finished) {
         const chunk = await reader.read();
         if (chunk.done) break;
         buffer += decoder.decode(chunk.value, { stream: true });
         let newline = buffer.indexOf('\n');
         while (newline >= 0) {
-          const line = buffer.slice(0, newline).trim();
+          const line = buffer.slice(0, newline).replace(/\r$/, '');
           buffer = buffer.slice(newline + 1);
           newline = buffer.indexOf('\n');
           if (!line || line.charAt(0) === ':') continue;
           if (line.indexOf('data:') !== 0) continue;
           const payload = line.slice(5).trim();
-          if (payload === '[DONE]') {
-            finish = true;
-            break;
+          if (!payload) continue;
+          let event;
+          try {
+            event = JSON.parse(payload);
+          } catch (error) {
+            continue;
           }
-          const delta = readDelta(payload);
-          if (delta) onDelta(delta);
+          if (event && event.type === 'error') {
+            throw new Error((event.error && event.error.message) || 'stream error');
+          }
+          if (event && event.type === 'message_stop') finished = true;
+          yield event;
+          if (finished) break;
         }
       }
-      if (buffer.trim()) {
-        const tail = readDelta(buffer.trim());
-        if (tail) onDelta(tail);
-      }
     }
 
-    /** Read one SSE payload into a delta, ignoring keep-alives and errors already surfaced. */
-    function readDelta(payload) {
-      if (!payload || payload === '[DONE]') return null;
-      let json;
+    /** Synthesize the same event sequence from a non-streaming body. */
+    function* eventsFromBody(text) {
+      let body;
       try {
-        json = JSON.parse(payload);
+        body = JSON.parse(text);
       } catch (error) {
-        return null;
+        throw new Error(text.slice(0, 200));
       }
-      if (json && json.error && json.error.message) throw new Error(json.error.message);
-      const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
-      if (!choice) return null;
-      const delta = choice.delta || choice.message || {};
-      const content = typeof delta.content === 'string' ? delta.content : '';
-      const reasoning = typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
-      if (!content && !reasoning) return null;
-      return { content, reasoning };
-    }
-
-    /** A non-streaming response body, used only when the browser cannot read the stream. */
-    function parseWholeBody(text) {
-      try {
-        const json = JSON.parse(text);
-        const choice = json && Array.isArray(json.choices) ? json.choices[0] : null;
-        const message = choice && choice.message ? choice.message : {};
-        return { content: message.content || '', reasoning: message.reasoning_content || '' };
-      } catch (error) {
-        return { content: text, reasoning: '' };
+      if (body && body.error) throw new Error(body.error.message || 'request failed');
+      yield { type: 'message_start', message: body };
+      const blocks = Array.isArray(body.content) ? body.content : [];
+      for (let index = 0; index < blocks.length; index += 1) {
+        yield { type: 'content_block_start', index, content_block: blocks[index] };
+        yield { type: 'content_block_stop', index };
       }
+      yield { type: 'message_delta', delta: { stop_reason: body.stop_reason }, usage: body.usage };
+      yield { type: 'message_stop' };
     }
 
     /* ------------------------------------------------------------ tool calls */
@@ -773,110 +902,202 @@ window.__ModuleLoader__.load({
       return new Error((prefix ? prefix + ' · ' : '') + 'HTTP ' + response.status + (trimmed ? ' · ' + trimmed.slice(0, 200) : ''));
     }
 
+    /** Lower-case extension without the dot. */
+    function fileExt(name) {
+      const text = String(name || '');
+      const dot = text.lastIndexOf('.');
+      return dot > 0 ? text.slice(dot + 1).toLowerCase() : '';
+    }
+
+    /** Browsers on Windows sometimes omit `file.type`; fall back to the extension. */
+    function resolveMimeType(file) {
+      if (file.type) return file.type;
+      const ext = fileExt(file.name);
+      const map = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml' };
+      return map[ext] || '';
+    }
+
+    /** Images travel as image blocks; everything else is a document. */
+    function isImageFile(file) {
+      return resolveMimeType(file).indexOf('image/') === 0;
+    }
+
+    /** Files API purpose: images carry none, layout documents ask for page parsing. */
+    function uploadPurpose(file) {
+      if (isImageFile(file)) return null;
+      return LAYOUT_EXTS.indexOf(fileExt(file.name)) >= 0 ? 'rich_layout_recognition' : 'user_data';
+    }
+
+    /** The size cap that applies to one file, in MiB. */
+    function maxSizeMb(file) {
+      return uploadPurpose(file) === 'user_data' ? MAX_USER_DATA_MB : MAX_FILE_MB;
+    }
+
     /**
-     * Search the web through `POST /v1/tools/search`.
+     * Upload one attachment through the Files API.
      * @param options.settings - resolved API settings.
-     * @param options.query - the user's question or a rewritten query.
-     * @param options.count - how many results to ask for.
+     * @param options.file - the picked, dropped, or pasted `File`.
      * @param options.signal - abort signal owned by the caller.
-     * @returns the result rows, newest and most relevant first.
+     * @returns the server file id used by later message blocks.
      */
-    async function searchWeb(options) {
-      const { settings, query, count, signal } = options;
-      const question = String(query).trim();
-      if (!question) return [];
-      const response = await fetch(endpoints(settings.baseUrl).search, {
-        method: 'POST',
-        signal,
-        headers: {
-          'content-type': 'application/json',
-          authorization: 'Bearer ' + String(settings.apiKey).trim(),
-        },
-        body: JSON.stringify({
-          query: question.length > 128 ? question.slice(0, 128) : question,
-          ori_question: question.length > 128 ? question.slice(0, 128) : question,
-          count: count || 5,
-          need_content: false,
-        }),
-      });
-      if (!response.ok) throw await failedResponse(response, 'search');
-      const body = await response.json();
-      const results = body && Array.isArray(body.results) ? body.results : [];
-      return results
-        .filter((item) => item && typeof item.url === 'string')
-        .map((item) => ({
-          title: typeof item.title === 'string' ? item.title : '',
-          url: item.url,
-          snippet: typeof item.snippet === 'string' && item.snippet
-            ? item.snippet
-            : typeof item.summary === 'string' ? item.summary : '',
-          site: typeof item.site_name === 'string' ? item.site_name : '',
-          date: typeof item.date === 'string' ? item.date : '',
-        }));
-    }
-
-    /**
-     * Turn search rows into the context message that precedes the question.
-     * The answer instructions keep citations in the `[n]` form the UI links back.
-     */
-    function searchContext(question, sources) {
-      if (!sources.length) return '';
-      const lines = sources.map((source, index) => {
-        const head = '[' + (index + 1) + '] ' + (source.title || source.url);
-        const parts = [head, 'URL: ' + source.url];
-        if (source.site) parts.push('站点: ' + source.site);
-        if (source.snippet) parts.push('摘要: ' + source.snippet);
-        return parts.join('\n');
-      });
-      return [
-        '以下是针对用户问题「' + question + '」刚刚检索到的网页搜索结果：',
-        '',
-        lines.join('\n\n'),
-        '',
-        '回答要求：优先使用上述结果作答；引用某条结果时在句末标注 [序号]，例如 [1]；不要编造结果之外的事实；如果结果不足以回答，请明确说明。',
-      ].join('\n');
-    }
-
-    /** History plus the search context, without mutating the caller's array. */
-    function withSearchContext(history, question, sources) {
-      const context = searchContext(question, sources);
-      if (!context) return history;
-      return [{ role: 'system', content: context }].concat(history);
-    }
-
-    /**
-     * Recognize text in a document or image through `POST /v1/tools/ocr`.
-     * @param options.settings - resolved API settings.
-     * @param options.file - the picked `File`.
-     * @param options.signal - abort signal owned by the caller.
-     * @returns the recognized text, pages joined by a blank line.
-     */
-    async function ocrFile(options) {
+    async function uploadAttachment(options) {
       const { settings, file, signal } = options;
       const form = new FormData();
-      form.append('purpose', 'text_recognition');
+      const purpose = uploadPurpose(file);
+      if (purpose) form.append('purpose', purpose);
       form.append('file', file, file.name || 'upload');
-      const response = await fetch(endpoints(settings.baseUrl).ocr, {
+      const response = await fetch(endpoints(settings.baseUrl).files, {
         method: 'POST',
         signal,
-        headers: { authorization: 'Bearer ' + String(settings.apiKey).trim() },
+        headers: apiHeaders(settings, true),
         body: form,
       });
-      if (!response.ok) throw await failedResponse(response, 'ocr');
-      const raw = await response.text();
-      let body;
-      try {
-        // The service pads the body with newlines while it works.
-        body = JSON.parse(raw.trim());
-      } catch (error) {
-        throw new Error('ocr · ' + raw.slice(0, 200));
+      if (!response.ok) throw await failedResponse(response, 'upload');
+      const body = await response.json();
+      if (!body || typeof body.id !== 'string') throw new Error('upload · unexpected response');
+      return body.id;
+    }
+
+    /**
+     * Fold one stream event into the reply blocks.
+     * @param blocks - current blocks.
+     * @param indexes - maps a stream block index to a position in `blocks`.
+     * @param event - one Messages API stream event.
+     * @returns the same array when the event changes nothing.
+     */
+    function applyStreamEvent(blocks, indexes, event) {
+      if (!event || typeof event.type !== 'string') return blocks;
+      if (event.type === 'content_block_start') {
+        const content = event.content_block || {};
+        let block = null;
+        if (content.type === 'text') {
+          block = { type: 'text', text: typeof content.text === 'string' ? content.text : '', citations: [] };
+        } else if (content.type === 'thinking') {
+          block = { type: 'thinking', text: typeof content.thinking === 'string' ? content.thinking : '' };
+        } else if (content.type === 'server_tool_use') {
+          const input = content.input || {};
+          const queries = Array.isArray(input.queries)
+            ? input.queries.filter((query) => typeof query === 'string')
+            : (typeof input.query === 'string' ? [input.query] : []);
+          block = {
+            type: 'tool',
+            kind: typeof content.kind === 'string' ? content.kind : (input.action || 'search'),
+            queries,
+            url: typeof input.url === 'string' ? input.url : '',
+          };
+        } else if (content.type === 'web_search_tool_result') {
+          const items = Array.isArray(content.content)
+            ? content.content.filter((item) => item && item.type === 'web_search_result' && typeof item.url === 'string')
+            : [];
+          block = {
+            type: 'sources',
+            items: items.map((item) => ({
+              title: typeof item.title === 'string' ? item.title : '',
+              url: item.url,
+              snippet: typeof item.snippet === 'string' ? item.snippet : '',
+              site: typeof item.site_name === 'string' ? item.site_name : '',
+            })),
+          };
+        } else if (content.type === 'web_fetch_tool_result') {
+          const result = content.content || {};
+          block = { type: 'fetch', urls: typeof result.url === 'string' && result.url ? [result.url] : [] };
+        }
+        if (!block) {
+          indexes.delete(event.index);
+          return blocks;
+        }
+        const next = blocks.concat([block]);
+        indexes.set(event.index, next.length - 1);
+        return next;
       }
-      if (body && body.error && body.error.message) throw new Error('ocr · ' + body.error.message);
-      const pages = body && Array.isArray(body.pages) ? body.pages : [];
-      return pages
-        .map((page) => (page && typeof page.text === 'string' ? page.text.trim() : ''))
-        .filter(Boolean)
-        .join('\n\n');
+      if (event.type === 'content_block_delta') {
+        const position = indexes.get(event.index);
+        if (position === undefined) return blocks;
+        const block = blocks[position];
+        if (!block) return blocks;
+        const delta = event.delta || {};
+        if (block.type === 'text' && delta.type === 'text_delta') {
+          const next = blocks.slice();
+          next[position] = { type: 'text', text: block.text + delta.text, citations: block.citations || [] };
+          return next;
+        }
+        if (block.type === 'text' && delta.type === 'citations_delta') {
+          const citation = delta.citation || {};
+          if (typeof citation.url !== 'string') return blocks;
+          const next = blocks.slice();
+          next[position] = {
+            type: 'text',
+            text: block.text,
+            citations: (block.citations || []).concat([{
+              url: citation.url,
+              title: typeof citation.title === 'string' ? citation.title : '',
+            }]),
+          };
+          return next;
+        }
+        if (block.type === 'thinking' && delta.type === 'thinking_delta') {
+          const next = blocks.slice();
+          next[position] = { type: 'thinking', text: block.text + delta.thinking };
+          return next;
+        }
+        return blocks;
+      }
+      return blocks;
+    }
+
+    /** Stored attachment metadata for the request that is about to be sent. */
+    function attachmentMeta(item) {
+      return { id: item.id, name: item.name, size: item.size, isImage: item.isImage, fileId: item.fileId };
+    }
+    /** Stored attachments as request blocks, in the order the user added them. */
+    function attachmentBlocks(attachments) {
+      const blocks = [];
+      for (let i = 0; i < (attachments || []).length; i += 1) {
+        const item = attachments[i];
+        if (!item || !item.fileId) continue;
+        blocks.push({ type: item.isImage ? 'image' : 'document', source: { type: 'file', file_id: item.fileId } });
+      }
+      return blocks;
+    }
+
+    /** One user turn as a request message: files first, then the text. */
+    function userMessageParam(message) {
+      const files = attachmentBlocks(message.attachments);
+      const text = String(message.text || '').trim();
+      if (!files.length) return { role: 'user', content: text };
+      if (text) files.push({ type: 'text', text });
+      return { role: 'user', content: files };
+    }
+
+    /** Answer text of one reply; search results and thinking stay out of history. */
+    function assistantText(message) {
+      return (message.blocks || [])
+        .filter((block) => block && block.type === 'text')
+        .map((block) => block.text)
+        .join('');
+    }
+
+    /**
+     * Build the request history the way the demo does: complete rounds only,
+     * then the question being asked now.
+     */
+    function requestMessages(history, question) {
+      const messages = [];
+      for (let i = 0; i < history.length; i += 1) {
+        const user = history[i];
+        const reply = history[i + 1];
+        if (!user || user.role !== 'user') continue;
+        if (!reply || reply.role !== 'assistant') continue;
+        i += 1;
+        if (reply.status !== 'done' && reply.status !== 'stopped') continue;
+        const text = assistantText(reply);
+        if (!text.trim()) continue;
+        if (!String(user.text || '').trim() && attachmentBlocks(user.attachments).length === 0) continue;
+        messages.push(userMessageParam(user));
+        messages.push({ role: 'assistant', content: [{ type: 'text', text }] });
+      }
+      messages.push(userMessageParam(question));
+      return messages;
     }
 
     /**
@@ -1516,6 +1737,130 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 }
 .dsc-noticeRow { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
 
+.dsc-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 2px 8px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+.dsc-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 6px 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 9px;
+  background: var(--dsw-alias-bg-base);
+  font-size: 12px;
+}
+.dsc-attachment[data-status='uploading'] { opacity: 0.75; }
+.dsc-attachment[data-status='error'] { border-color: var(--dsw-alias-state-error-primary); }
+.dsc-attachmentGlyph { display: flex; color: var(--dsw-alias-label-secondary); }
+.dsc-attachmentName {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsc-attachmentMeta { color: var(--dsw-alias-label-secondary); font-size: 11px; white-space: nowrap; }
+.dsc-attachment[data-status='error'] .dsc-attachmentMeta { color: var(--dsw-alias-state-error-primary); }
+.dsc-attachmentAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+.dsc-attachmentAction:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsc-spinner {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border: 1.6px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: dsc-spin 720ms linear infinite;
+}
+@keyframes dsc-spin { to { transform: rotate(360deg); } }
+
+.dsc-dropMask {
+  position: absolute;
+  inset: 10px;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--dsw-alias-border-l2);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent);
+  backdrop-filter: blur(1px);
+  pointer-events: none;
+}
+.dsc-dropCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 22px 30px;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  text-align: center;
+}
+.dsc-dropIcon { display: flex; color: var(--dsw-alias-label-secondary); }
+.dsc-dropTitle { font-size: 13px; font-weight: 600; }
+.dsc-dropHint { font-size: 11.5px; color: var(--dsw-alias-label-secondary); }
+
+.dsc-turnUser { margin-bottom: 22px; }
+.dsc-userFiles { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; margin-bottom: 6px; }
+.dsc-userText { white-space: pre-wrap; overflow-wrap: anywhere; }
+.dsc-fileChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 7px;
+  background: var(--dsw-alias-bg-base);
+  font-size: 11.5px;
+}
+.dsc-fileGlyph { display: flex; color: var(--dsw-alias-label-secondary); }
+.dsc-fileName { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsc-fileSize { color: var(--dsw-alias-label-secondary); }
+
+.dsc-trail { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 8px; }
+.dsc-trailItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 7px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+}
+.dsc-cites { display: inline-flex; gap: 3px; margin-left: 3px; vertical-align: super; }
+.dsc-cites a {
+  display: inline-block;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-label-secondary) 16%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 10px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.dsc-cites a:hover { background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); }
+
 .dsc-mdPara { margin: 0 0 10px; }
 .dsc-mdHeading { margin: 18px 0 8px; line-height: 1.35; font-weight: 600; }
 h1.dsc-mdHeading { font-size: 19px; }
@@ -1841,6 +2186,23 @@ h3.dsc-mdHeading { font-size: 15px; }
         h('path', { d: 'M4 4l8 8M12 4l-8 8' }));
     }
 
+    function PaperclipIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M13 7.1 8.1 12a3 3 0 0 1-4.2-4.2l5.3-5.3a2 2 0 0 1 2.8 2.8l-5.3 5.3a1 1 0 0 1-1.4-1.4l4.8-4.8' }));
+    }
+
+    function ImageIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('rect', { x: 2.2, y: 3.2, width: 11.6, height: 9.6, rx: 2 }),
+        h('circle', { cx: 6, cy: 6.8, r: 1.1 }),
+        h('path', { d: 'M3 11.6 6.6 8.4l2.2 1.9 2-1.7 2.2 3' }));
+    }
+
+    function RefreshIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 12, height: 12, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M13 8a5 5 0 1 1-1.6-3.7M13 2.6v3.1h-3.1' }));
+    }
+
     /* ------------------------------------------------------------ components */
 
     /** A media-query hook so the rail can become an overlay on narrow panels. */
@@ -1919,25 +2281,155 @@ h3.dsc-mdHeading { font-size: 15px; }
           : null);
     }
 
-    /** One assistant message: search stage, reasoning, body, sources, and actions. */
+    /** Human-readable file size. */
+    function formatSize(bytes) {
+      const size = Number(bytes) || 0;
+      if (size < 1024) return size + ' B';
+      const units = ['KB', 'MB', 'GB'];
+      let value = size / 1024;
+      let unit = 0;
+      while (value >= 1024 && unit < units.length - 1) {
+        value /= 1024;
+        unit += 1;
+      }
+      return (value < 10 ? value.toFixed(1) : Math.round(value)) + ' ' + units[unit];
+    }
+
+    /** One queued attachment above the textarea: name, state, retry, remove. */
+    function AttachmentChip(props) {
+      const { item, t, onRemove, onRetry } = props;
+      const failed = item.status === 'error';
+      return h('span', { className: 'dsc-attachment', 'data-status': item.status, title: failed ? item.error : item.name },
+        h('span', { className: 'dsc-attachmentGlyph' }, item.isImage ? h(ImageIcon) : h(FileIcon)),
+        h('span', { className: 'dsc-attachmentName' }, item.name),
+        h('span', { className: 'dsc-attachmentMeta' },
+          item.status === 'uploading' ? t('uploading') : failed ? t('uploadFailed') : formatSize(item.size)),
+        failed
+          ? h('button', {
+            type: 'button',
+            className: 'dsc-attachmentAction',
+            title: t('uploadRetry'),
+            'aria-label': t('uploadRetry'),
+            onClick: onRetry,
+          }, h(RefreshIcon))
+          : null,
+        h('button', {
+          type: 'button',
+          className: 'dsc-attachmentAction',
+          title: t('removeAttachment'),
+          'aria-label': t('removeAttachment'),
+          onClick: onRemove,
+        }, h(CloseIcon)));
+    }
+
+    /** A read-only attachment card inside a sent message. */
+    function FileChip(props) {
+      const { item, t } = props;
+      return h('span', { className: 'dsc-fileChip', title: item.name },
+        h('span', { className: 'dsc-fileGlyph' }, h(FileIcon)),
+        h('span', { className: 'dsc-fileName' }, item.name),
+        h('span', { className: 'dsc-fileSize' }, item.isImage ? t('image') : formatSize(item.size)));
+    }
+
+    /** One user turn: attachments above the text, right-aligned. */
+    function UserMessage(props) {
+      const { message, t } = props;
+      const items = message.attachments || [];
+      return h('div', { className: 'dsc-userRow' },
+        h('div', { className: 'dsc-userBubble' },
+          items.length
+            ? h('div', { className: 'dsc-userFiles' }, items.map((item) => h(FileChip, { key: item.id, item, t })))
+            : null,
+          message.text ? h('div', { className: 'dsc-userText' }, message.text) : null));
+    }
+
+    /** The search and link-reading steps a reply used, shown as one quiet row. */
+    function SearchTrail(props) {
+      const { tools, fetches, t } = props;
+      const queries = [];
+      for (let i = 0; i < tools.length; i += 1) {
+        const list = tools[i].queries || [];
+        for (let j = 0; j < list.length; j += 1) if (queries.indexOf(list[j]) < 0) queries.push(list[j]);
+      }
+      const urls = [];
+      for (let i = 0; i < fetches.length; i += 1) {
+        const list = fetches[i].urls || [];
+        for (let j = 0; j < list.length; j += 1) if (urls.indexOf(list[j]) < 0) urls.push(list[j]);
+      }
+      if (!queries.length && !urls.length) return null;
+      return h('div', { className: 'dsc-trail' },
+        queries.length
+          ? h('span', { className: 'dsc-trailItem', title: queries.join('\n') },
+            h(GlobeIcon), h('span', null, t('searchQueries') + ' · ' + queries.length))
+          : null,
+        urls.length
+          ? h('span', { className: 'dsc-trailItem', title: urls.join('\n') },
+            h(FileIcon), h('span', null, t('readPages') + ' · ' + urls.length))
+          : null);
+    }
+
+    /** One assistant message rendered from its streamed blocks. */
     function AssistantMessage(props) {
       const { message, streaming, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t } = props;
       const [copied, setCopied] = useState(false);
+      const blocks = message.blocks || [];
+      const answer = assistantText(message);
       const copy = useCallback(() => {
-        copyText(message.content).then((ok) => {
+        copyText(answer).then((ok) => {
           if (!ok) return;
           setCopied(true);
           window.setTimeout(() => setCopied(false), 1400);
         });
-      }, [message.content]);
-      const hasBody = Boolean(message.content);
-      const searching = message.stage === 'searching';
-      const sources = message.sources || [];
+      }, [answer]);
+      const hasBody = Boolean(answer.trim());
+      const thinking = blocks.filter((block) => block.type === 'thinking').map((block) => block.text).join('\n\n').trim();
+      const tools = blocks.filter((block) => block.type === 'tool');
+      const fetches = blocks.filter((block) => block.type === 'fetch');
+      const sources = [];
+      const seen = {};
+      for (let i = 0; i < blocks.length; i += 1) {
+        if (blocks[i].type !== 'sources') continue;
+        for (let j = 0; j < blocks[i].items.length; j += 1) {
+          const item = blocks[i].items[j];
+          if (seen[item.url]) continue;
+          seen[item.url] = true;
+          sources.push(item);
+        }
+      }
+      const citeIndex = {};
+      let cites = 0;
+      for (let i = 0; i < blocks.length; i += 1) {
+        const list = blocks[i].citations || [];
+        for (let j = 0; j < list.length; j += 1) {
+          if (citeIndex[list[j].url]) continue;
+          cites += 1;
+          citeIndex[list[j].url] = cites;
+        }
+      }
+      // The service splits a reply into one text block per citation. Joining them
+      // again keeps the sentences — and the punctuation after a citation — inline.
+      let source = '';
+      for (let i = 0; i < blocks.length; i += 1) {
+        const block = blocks[i];
+        if (block.type !== 'text' || !block.text) continue;
+        source += block.text;
+        const list = block.citations || [];
+        for (let j = 0; j < list.length; j += 1) {
+          const number = citeIndex[list[j].url];
+          if (!number) continue;
+          source += '[c' + number + '](cite:' + encodeURIComponent(list[j].url) + ')';
+        }
+      }
+      const body = source
+        ? h('div', { className: 'dsc-botBody' },
+          renderMarkdown(source, t, message.id),
+          streaming ? h('span', { className: 'dsc-caret' }) : null)
+        : streaming ? h('div', { className: 'dsc-botBody' }, h('span', { className: 'dsc-caret' })) : null;
       return h('div', { className: 'dsc-botRow' },
         h('div', { className: 'dsc-botHead' },
           h('span', { className: 'dsc-botMark' }, h(BrandMark, { size: 16 })),
           h('span', { className: 'dsc-botName' }, t('assistantName')),
-          streaming && !searching ? h('span', { className: 'dsc-liveDot' }) : null,
+          streaming ? h('span', { className: 'dsc-liveDot' }) : null,
           hasBody && !streaming
             ? h('span', { className: 'dsc-botActions' },
               h('button', {
@@ -1950,15 +2442,12 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('button', { type: 'button', className: 'dsc-plainAction', onClick: copy }, copied ? t('copied') : t('copy')),
               canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null)
             : null),
-        h(Reasoning, { text: message.reasoning, live: streaming && !hasBody, t }),
-        searching
-          ? h('div', { className: 'dsc-stage' }, h('span', { className: 'dsc-liveDot' }), h('span', null, t('searching')))
-          : hasBody
-            ? h('div', { className: 'dsc-botBody' }, renderMarkdown(message.content, t, message.id, sources), streaming ? h('span', { className: 'dsc-caret' }) : null)
-            : streaming ? h('div', { className: 'dsc-botBody' }, h('span', { className: 'dsc-caret' })) : null,
+        thinking ? h(Reasoning, { text: thinking, live: streaming && !hasBody, t }) : null,
+        h(SearchTrail, { tools, fetches, t }),
+        body,
         h(Sources, { sources, t, streaming }),
         message.error ? h('div', { className: 'dsc-error', role: 'alert' }, t('error') + ': ' + message.error) : null,
-        message.stopped && !message.error ? h('div', { className: 'dsc-stopNote' }, t('stopped')) : null);
+        message.status === 'stopped' ? h('div', { className: 'dsc-stopNote' }, t('stopped')) : null);
     }
 
     /** One conversation row with inline rename and delete. */
@@ -2177,7 +2666,9 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [thinkMenuOpen, setThinkMenuOpen] = useState(false);
       const [recState, setRecState] = useState('idle');
       const [recSeconds, setRecSeconds] = useState(0);
-      const [ocrBusy, setOcrBusy] = useState(false);      const [ttsId, setTtsId] = useState(null);
+      const [attachments, setAttachments] = useState([]);
+      const [dragging, setDragging] = useState(false);
+      const [ttsId, setTtsId] = useState(null);
       const [ttsPendingId, setTtsPendingId] = useState(null);
       const inputRef = useRef(null);
       const scrollRef = useRef(null);
@@ -2188,6 +2679,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const ttsRef = useRef(null);
       const fileRef = useRef(null);
       const thinkWrapRef = useRef(null);
+      const dragDepthRef = useRef(0);
       const narrow = useMediaQuery('(max-width: 760px)');
 
       const active = useMemo(
@@ -2195,6 +2687,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         [conversations, activeId],
       );
       const busy = streamingId !== null;
+      const uploading = attachments.some((item) => item.status === 'uploading');
 
       /* Persist conversations, coalescing bursts while a reply streams. An untouched
          "new chat" stays in memory only, so it never becomes an empty row on reload. */
@@ -2296,87 +2789,67 @@ h3.dsc-mdHeading { font-size: 15px; }
       }, []);
 
       /**
-       * Stream one reply, optionally running a web search first.
+       * Stream one reply and fold its events into the message.
        * @param conversationId - conversation owning the reply.
-       * @param messageId - placeholder message that receives the content.
-       * @param history - `{ role, content }` rows already sent for this turn.
-       * @param searchQuery - when set, search this text and answer against the results.
+       * @param messageId - placeholder message that receives the blocks.
+       * @param messages - request messages built by `requestMessages`.
+       * @param search - declare the server-side web search tool.
        */
-      const runReply = useCallback(async (conversationId, messageId, history, searchQuery) => {
+      const runReply = useCallback(async (conversationId, messageId, messages, search) => {
         const controller = new AbortController();
         abortRef.current = controller;
         setStreamingId(messageId);
         stickRef.current = true;
-        let content = '';
-        let reasoning = '';
-        let messages = history;
+        let blocks = [];
+        const indexes = new Map();
         try {
-          if (searchQuery) {
-            patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: 'searching' }));
-            try {
-              const found = await searchWeb({ settings, query: searchQuery, count: 5, signal: controller.signal });
-              const sources = found.slice(0, 5).map((item) => ({
-                title: item.title, url: item.url, snippet: item.snippet, site: item.site,
-              }));
-              patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: '', sources }));
-              messages = withSearchContext(history, searchQuery, found.slice(0, 5));
-            } catch (error) {
-              if (error && error.name === 'AbortError') throw error;
-              patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: '' }));
-              setNotice(t('searchFailed') + ': ' + (error && error.message ? error.message : String(error)));
+          for await (const event of streamMessage({ settings, messages, search, signal: controller.signal })) {
+            const next = applyStreamEvent(blocks, indexes, event);
+            if (next !== blocks) {
+              blocks = next;
+              patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { blocks }));
             }
           }
-          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: 'streaming' }));
-          await streamReply({
-            settings,
-            messages,
-            signal: controller.signal,
-            onDelta: (delta) => {
-              if (delta.content) content += delta.content;
-              if (delta.reasoning) reasoning += delta.reasoning;
-              patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning }));
-            },
-          });
-          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning, stage: '' }));
+          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { blocks, status: 'done' }));
         } catch (error) {
-          if (error && error.name === 'AbortError') {
-            patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning, stage: '', stopped: true }));
-          } else {
-            patchMessage(conversationId, messageId, (message) => Object.assign({}, message, {
-              content,
-              reasoning,
-              stage: '',
-              error: (error && error.message ? error.message : String(error)),
-            }));
-          }
+          const aborted = Boolean(error && error.name === 'AbortError');
+          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, {
+            blocks,
+            status: aborted ? 'stopped' : 'error',
+            error: aborted ? '' : (error && error.message ? error.message : String(error)),
+          }));
         } finally {
           abortRef.current = null;
           setStreamingId(null);
         }
-      }, [patchMessage, settings, t]);
+      }, [patchMessage, settings]);
 
       const findConversation = useCallback((id) => conversations.find((item) => item.id === id) || null, [conversations]);
 
       const send = useCallback((textInput) => {
         const text = String(textInput === undefined ? draft : textInput).trim();
-        if (!text || busy) return;
+        const ready = attachments.filter((item) => item.status === 'done' && item.fileId);
+        if ((!text && !ready.length) || busy || uploading) return;
         if (!String(settings.apiKey).trim()) {
           setNotice(t('missingKey'));
           setSettingsOpen(true);
           return;
         }
-        const userMessage = { id: uid(), role: 'user', content: text, reasoning: '', error: '', stopped: false, sources: [] };
-        const botMessage = { id: uid(), role: 'assistant', content: '', reasoning: '', error: '', stopped: false, sources: [], stage: '' };
+        const userMessage = {
+          id: uid(),
+          role: 'user',
+          text,
+          attachments: ready.map(attachmentMeta),
+        };
+        const botMessage = { id: uid(), role: 'assistant', blocks: [], status: 'streaming', error: '' };
         const target = activeId ? findConversation(activeId) : null;
-        const history = [];
+        const title = titleFrom(text || (ready[0] ? ready[0].name : ''));
         let conversationId = activeId;
+        let history = [];
         if (target) {
-          for (let i = 0; i < target.messages.length; i += 1) {
-            const message = target.messages[i];
-            if (message.content) history.push({ role: message.role, content: message.content });
-          }
+          history = target.messages;
           updateConversation(target.id, (item) => Object.assign({}, item, {
-            title: item.title || titleFrom(text),
+            title: item.title || title,
             updatedAt: Date.now(),
             messages: item.messages.concat([userMessage, botMessage]),
           }));
@@ -2384,7 +2857,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           conversationId = uid();
           const created = {
             id: conversationId,
-            title: titleFrom(text),
+            title,
             createdAt: Date.now(),
             updatedAt: Date.now(),
             messages: [userMessage, botMessage],
@@ -2392,16 +2865,17 @@ h3.dsc-mdHeading { font-size: 15px; }
           setConversations((previous) => [created].concat(previous));
           setActiveId(conversationId);
         }
-        history.push({ role: 'user', content: text });
+        const request = requestMessages(history, userMessage);
         setDraft('');
+        setAttachments([]);
         setNotice('');
         stickRef.current = true;
-        runReply(conversationId, botMessage.id, history, settings.webSearch ? text : '');
+        runReply(conversationId, botMessage.id, request, settings.webSearch);
         window.setTimeout(() => {
           const node = inputRef.current;
           if (node) node.focus();
         }, 0);
-      }, [activeId, busy, draft, findConversation, runReply, settings.apiKey, settings.webSearch, t, updateConversation]);
+      }, [activeId, attachments, busy, draft, findConversation, runReply, settings.apiKey, settings.webSearch, t, updateConversation, uploading]);
 
       const stop = useCallback(() => {
         if (abortRef.current) abortRef.current.abort();
@@ -2567,48 +3041,136 @@ h3.dsc-mdHeading { font-size: 15px; }
         }, 500);
       }, [recState, settings.apiKey, stopRecorder, t, transcribe]);
 
-      /** Recognize one picked or pasted file and drop the text into the draft. */
-      const runOcr = useCallback(async (file) => {
-        if (!file) return;
-        if (ocrBusy) return;
+      /** Current attachments, readable from event handlers without stale closures. */
+      const attachmentsRef = useRef(attachments);
+      attachmentsRef.current = attachments;
+
+      const removeAttachment = useCallback((id) => {
+        setAttachments((previous) => previous.filter((item) => item.id !== id));
+      }, []);
+
+      /** Upload one attachment and record its server id or failure. */
+      const uploadOne = useCallback(async (item) => {
+        try {
+          const fileId = await uploadAttachment({ settings, file: item.file });
+          setAttachments((previous) => previous.map((current) => (current.id === item.id
+            ? Object.assign({}, current, { status: 'done', fileId, error: '' })
+            : current)));
+        } catch (error) {
+          if (error && error.name === 'AbortError') return;
+          setAttachments((previous) => previous.map((current) => (current.id === item.id
+            ? Object.assign({}, current, {
+              status: 'error',
+              error: error && error.message ? error.message : String(error),
+            })
+            : current)));
+        }
+      }, [settings]);
+
+      /** Validate a batch, queue it, and start its uploads. */
+      const addFiles = useCallback((fileList) => {
+        const files = Array.prototype.slice.call(fileList || []).filter(Boolean);
+        if (!files.length) return;
         if (!String(settings.apiKey).trim()) {
           setNotice(t('missingKey'));
           setSettingsOpen(true);
           return;
         }
-        setOcrBusy(true);
-        setNotice(t('ocrWorking'));
-        try {
-          const text = await ocrFile({ settings, file });
-          if (text && text.trim()) {
-            appendToDraft(text);
-            setNotice(t('ocrDone'));
-          } else {
-            setNotice(t('ocrEmpty'));
+        const next = attachmentsRef.current.slice();
+        const queued = [];
+        let problem = '';
+        for (let i = 0; i < files.length; i += 1) {
+          const file = files[i];
+          if (next.length >= MAX_ATTACHMENTS) {
+            problem = t('attachTooMany').replace('{count}', String(MAX_ATTACHMENTS));
+            break;
           }
-        } catch (error) {
-          setNotice((error && error.message) || t('ocrFailed'));
-        } finally {
-          setOcrBusy(false);
-          if (fileRef.current) fileRef.current.value = '';
+          const image = isImageFile(file);
+          if (!image && ACCEPTED_EXTS.indexOf(fileExt(file.name)) < 0) {
+            problem = t('attachUnsupported') + ': ' + (file.name || '');
+            continue;
+          }
+          const limit = maxSizeMb(file);
+          if (file.size > limit * 1024 * 1024) {
+            problem = t('attachTooLarge').replace('{size}', String(limit));
+            continue;
+          }
+          const item = {
+            id: uid(),
+            name: file.name || 'file',
+            size: file.size,
+            isImage: image,
+            status: 'uploading',
+            fileId: '',
+            error: '',
+            file,
+          };
+          next.push(item);
+          queued.push(item);
         }
-      }, [appendToDraft, ocrBusy, settings, t]);
+        if (problem) setNotice(problem);
+        if (!queued.length) return;
+        setAttachments(next);
+        for (let i = 0; i < queued.length; i += 1) uploadOne(queued[i]);
+      }, [settings, t, uploadOne]);
+
+      const retryAttachment = useCallback((item) => {
+        if (!item || !item.file) return;
+        setAttachments((previous) => previous.map((current) => (current.id === item.id
+          ? Object.assign({}, current, { status: 'uploading', error: '' })
+          : current)));
+        uploadOne(item);
+      }, [uploadOne]);
+
+      /** Files carried by one clipboard or drag payload, if any. */
+      const payloadFiles = useCallback((data) => {
+        if (!data) return [];
+        if (data.files && data.files.length) return Array.prototype.slice.call(data.files);
+        const items = data.items;
+        if (!items) return [];
+        const files = [];
+        for (let i = 0; i < items.length; i += 1) {
+          if (items[i].kind !== 'file') continue;
+          const file = items[i].getAsFile();
+          if (file) files.push(file);
+        }
+        return files;
+      }, []);
 
       const onComposerPaste = useCallback((event) => {
-        const items = event.clipboardData && event.clipboardData.items;
-        if (!items) return;
-        for (let i = 0; i < items.length; i += 1) {
-          const item = items[i];
-          if (item.kind === 'file' && /^image\//.test(item.type)) {
-            const file = item.getAsFile();
-            if (file) {
-              event.preventDefault();
-              runOcr(file);
-            }
-            return;
-          }
-        }
-      }, [runOcr]);
+        const files = payloadFiles(event.clipboardData);
+        if (!files.length) return;
+        event.preventDefault();
+        addFiles(files);
+      }, [addFiles, payloadFiles]);
+
+      const onDragEnter = useCallback((event) => {
+        if (!event.dataTransfer || Array.prototype.indexOf.call(event.dataTransfer.types, 'Files') < 0) return;
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        setDragging(true);
+      }, []);
+
+      const onDragOver = useCallback((event) => {
+        if (!event.dataTransfer || Array.prototype.indexOf.call(event.dataTransfer.types, 'Files') < 0) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }, []);
+
+      const onDragLeave = useCallback((event) => {
+        if (!event.dataTransfer || Array.prototype.indexOf.call(event.dataTransfer.types, 'Files') < 0) return;
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) setDragging(false);
+      }, []);
+
+      const onDrop = useCallback((event) => {
+        if (!event.dataTransfer) return;
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setDragging(false);
+        const files = payloadFiles(event.dataTransfer);
+        if (files.length) addFiles(files);
+      }, [addFiles, payloadFiles]);
 
       const stopSpeaking = useCallback(() => {
         const current = ttsRef.current;
@@ -2636,7 +3198,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           setSettingsOpen(true);
           return;
         }
-        const text = readableText(message.content);
+        const text = readableText(assistantText(message));
         if (!text) return;
         stopSpeaking();
         setTtsPendingId(message.id);
@@ -2662,20 +3224,18 @@ h3.dsc-mdHeading { font-size: 15px; }
 
       const regenerate = useCallback((conversation) => {
         if (!conversation || busy) return;
-        const lastIndex = conversation.messages.length - 1;
-        const last = conversation.messages[lastIndex];
+        const messages = conversation.messages;
+        const lastIndex = messages.length - 1;
+        const last = messages[lastIndex];
         if (!last || last.role !== 'assistant') return;
-        const history = [];
-        for (let i = 0; i < lastIndex; i += 1) {
-          const message = conversation.messages[i];
-          if (message.content) history.push({ role: message.role, content: message.content });
-        }
-        if (!history.length) return;
+        const question = messages[lastIndex - 1];
+        if (!question || question.role !== 'user') return;
+        const request = requestMessages(messages.slice(0, lastIndex - 1), question);
         patchMessage(conversation.id, last.id, (message) => Object.assign({}, message, {
-          content: '', reasoning: '', error: '', stopped: false, stage: '', sources: [],
+          blocks: [], status: 'streaming', error: '',
         }));
-        runReply(conversation.id, last.id, history, '');
-      }, [busy, patchMessage, runReply]);
+        runReply(conversation.id, last.id, request, settings.webSearch);
+      }, [busy, patchMessage, runReply, settings.webSearch]);
 
       const startNewChat = useCallback(() => {
         const created = { id: uid(), title: '', createdAt: Date.now(), updatedAt: Date.now(), messages: [] };
@@ -2793,8 +3353,7 @@ h3.dsc-mdHeading { font-size: 15px; }
             }, t(key)))))
         : h('div', { className: 'dsc-thread' }, messages.map((message) => {
           if (message.role === 'user') {
-            return h('div', { key: message.id, className: 'dsc-userRow' },
-              h('div', { className: 'dsc-userBubble' }, message.content));
+            return h('div', { key: message.id, className: 'dsc-turn dsc-turnUser' }, h(UserMessage, { message, t }));
           }
           return h('div', { key: message.id, className: 'dsc-turn' },
             h(AssistantMessage, {
@@ -2837,6 +3396,15 @@ h3.dsc-mdHeading { font-size: 15px; }
         : recState === 'transcribing' ? t('transcribing') : '';
 
       const composer = h('div', { className: 'dsc-composer' },
+        attachments.length
+          ? h('div', { className: 'dsc-attachments' }, attachments.map((item) => h(AttachmentChip, {
+            key: item.id,
+            item,
+            t,
+            onRemove: () => removeAttachment(item.id),
+            onRetry: () => retryAttachment(item),
+          })))
+          : null,
         h('textarea', {
           ref: inputRef,
           className: 'dsc-input',
@@ -2883,24 +3451,26 @@ h3.dsc-mdHeading { font-size: 15px; }
             h('button', {
               type: 'button',
               className: 'dsc-tool',
-              title: ocrBusy ? t('ocrWorking') : t('ocrHint'),
-              disabled: ocrBusy,
+              title: t('attachHint'),
               onClick: () => {
                 const node = fileRef.current;
                 if (node) node.click();
               },
-            }, h(FileIcon), h('span', { className: 'dsc-toolLabel' }, ocrBusy ? t('ocrWorking') : 'OCR')),
+            },
+              uploading ? h('span', { className: 'dsc-spinner' }) : h(PaperclipIcon),
+              h('span', { className: 'dsc-toolLabel' }, t('attach'))),
             h('input', {
               ref: fileRef,
               type: 'file',
-              accept: '.pdf,.doc,.docx,.ppt,.pptx,image/*',
+              multiple: true,
+              accept: ACCEPTED_EXTS.map((ext) => '.' + ext).join(','),
               style: { display: 'none' },
               onChange: (event) => {
-                const file = event.target.files && event.target.files[0];
-                if (file) runOcr(file);
+                addFiles(event.target.files);
+                event.target.value = '';
               },
             })),
-          h('span', { className: 'dsc-composerHint' }, draft.trim() ? '' : t('welcomeHint')),
+          h('span', { className: 'dsc-composerHint' }, draft.trim() || attachments.length ? '' : t('welcomeHint')),
           busy
             ? h('button', {
               type: 'button',
@@ -2915,7 +3485,7 @@ h3.dsc-mdHeading { font-size: 15px; }
               className: 'dsc-send',
               title: t('send'),
               'aria-label': t('send'),
-              disabled: !draft.trim(),
+              disabled: (!draft.trim() && !attachments.length) || uploading,
               onClick: () => send(),
             }, h(ArrowIcon))));
 
@@ -2972,11 +3542,24 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('button', { type: 'button', className: 'dsc-plainAction', onClick: () => setSettingsOpen(true) }, t('settings'))),
           composer));
 
-      return h('div', { className: 'dsc-root' },
+      return h('div', {
+        className: 'dsc-root',
+        onDragEnter,
+        onDragOver,
+        onDragLeave,
+        onDrop,
+      },
         h('style', { dangerouslySetInnerHTML: { __html: CSS } }),
         railOpen && narrow ? h('div', { className: 'dsc-scrim', onClick: () => setRailOpen(false) }) : null,
         rail,
         chatColumn,
+        dragging
+          ? h('div', { className: 'dsc-dropMask' },
+            h('div', { className: 'dsc-dropCard' },
+              h('span', { className: 'dsc-dropIcon' }, h(PaperclipIcon)),
+              h('span', { className: 'dsc-dropTitle' }, t('dropHere')),
+              h('span', { className: 'dsc-dropHint' }, t('attachHint'))))
+          : null,
         settingsOpen
           ? h(SettingsDialog, {
             t,

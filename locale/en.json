@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "DeepSeek chat",
-    "description": "A focused DeepSeek chat panel in the main area, opened from the DeepSeek chat entry in the left sidebar. Set your API key, model, and thinking strength, then chat with streaming replies and Markdown. A web-search toggle answers with numbered sources, the microphone turns speech into text, each answer can be read aloud, and OCR turns a PDF, Word, PowerPoint, or image into draft text. Conversations and settings stay in this browser's localStorage and are sent only to your configured API base URL.",
+    "description": "A focused DeepSeek chat panel in the main area, opened from the DeepSeek chat entry in the left sidebar. Set your API key, model, and thinking strength, then chat with streaming replies and Markdown. Drop, paste, or pick files: images and documents are uploaded through the DeepSeek Files API so the model reads them directly, no OCR step. Web search and link reading are server-side tools, so answers carry numbered citations and a source list. The microphone turns speech into text and any answer can be read aloud. Conversations, settings, and file ids stay in this browser's localStorage; requests go to your API base URL and uploaded files stay on the API service.",
     "detail": "docs/DETAIL.md"
   }
 }

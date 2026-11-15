@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "DeepSeek 对话",
-    "description": "在主区域打开的 DeepSeek 对话面板，从左侧栏的「DeepSeek 对话」入口进入。填入 API Key、模型与思考强度后即可对话：流式回复、Markdown 渲染；「联网」开关会先检索网页并附编号来源；麦克风把语音转成文字；每条回答可朗读；OCR 可把 PDF、Word、PPT 或图片识别成输入框里的文字。对话与设置保存在本浏览器 localStorage，只会发送给你配置的 API 地址。",
+    "description": "在主区域打开的 DeepSeek 对话面板，从左侧栏的「DeepSeek 对话」入口进入。填入 API Key、模型与思考强度后即可对话：流式回复、Markdown 渲染。把图片或文档拖进输入框、粘贴或选择即可发送——它们经 DeepSeek Files API 上传，由模型直接阅读，不需要 OCR 步骤。联网搜索与阅读链接是服务端工具，回答自带编号引用与来源列表。麦克风可把语音转成文字，每条回答可朗读。对话、设置与文件 id 保存在本浏览器 localStorage；请求发往你配置的 API 地址，上传的文件保存在服务端。",
     "detail": "docs/DETAIL.zh.md"
   }
 }
