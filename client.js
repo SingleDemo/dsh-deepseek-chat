@@ -273,6 +273,31 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** Rebuild blocks for a reply stored before the Messages API move. */
+    function legacyBlocks(message) {
+      const blocks = [];
+      if (typeof message.reasoning === 'string' && message.reasoning.trim()) {
+        blocks.push({ type: 'thinking', text: message.reasoning });
+      }
+      if (typeof message.content === 'string' && message.content.trim()) {
+        blocks.push({ type: 'text', text: message.content, citations: [] });
+      }
+      if (Array.isArray(message.sources) && message.sources.length) {
+        blocks.push({
+          type: 'sources',
+          items: message.sources
+            .filter((source) => source && typeof source.url === 'string')
+            .map((source) => ({
+              title: typeof source.title === 'string' ? source.title : '',
+              url: source.url,
+              snippet: typeof source.snippet === 'string' ? source.snippet : '',
+              site: typeof source.site === 'string' ? source.site : '',
+            })),
+        });
+      }
+      return blocks;
+    }
+
     /** Keep only the reply blocks this panel knows how to draw. */
     function sanitizeBlocks(raw) {
       if (!Array.isArray(raw)) return [];
@@ -357,16 +382,19 @@ window.__ModuleLoader__.load({
                 return {
                   id: typeof m.id === 'string' ? m.id : uid(),
                   role: 'user',
-                  text: typeof m.text === 'string' ? m.text : '',
+                  // `content` is the shape stored before attachments existed.
+                  text: typeof m.text === 'string' ? m.text : (typeof m.content === 'string' ? m.content : ''),
                   attachments: sanitizeAttachments(m.attachments),
                 };
               }
-              const blocks = sanitizeBlocks(m.blocks);
+              const blocks = Array.isArray(m.blocks) ? sanitizeBlocks(m.blocks) : legacyBlocks(m);
               return {
                 id: typeof m.id === 'string' ? m.id : uid(),
                 role: 'assistant',
                 blocks,
-                status: m.status === 'done' || m.status === 'stopped' || m.status === 'error' ? m.status : (blocks.length ? 'done' : 'error'),
+                status: m.status === 'done' || m.status === 'stopped' || m.status === 'error'
+                  ? m.status
+                  : (m.stopped === true ? 'stopped' : (blocks.length ? 'done' : 'error')),
                 error: typeof m.error === 'string' ? m.error : '',
               };
             }),
