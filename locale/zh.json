@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "DeepSeek 对话",
-    "description": "在主区域打开的 DeepSeek 对话面板，从左侧栏的「DeepSeek 对话」入口进入。使用自己的 API Key 与任意 DeepSeek API 模型对话：流式回复、深度思考展示、Markdown 渲染，对话保存在本地。在面板的「设置」中填入 API Key；它保存在本浏览器的 localStorage 中，不会发给 Host。",
+    "description": "在主区域打开的 DeepSeek 对话面板，从左侧栏的「DeepSeek 对话」入口进入。填入 API Key、模型与思考强度后即可对话：流式回复、Markdown 渲染；「联网」开关会先检索网页并附编号来源；麦克风把语音转成文字；每条回答可朗读；OCR 可把 PDF、Word、PPT 或图片识别成输入框里的文字。对话与设置保存在本浏览器 localStorage，只会发送给你配置的 API 地址。",
     "detail": "docs/DETAIL.zh.md"
   }
 }

@@ -24,7 +24,15 @@ window.__ModuleLoader__.load({
     const SETTINGS_KEY = 'dsh.deepseekChat.settings.v1';
     const CONVERSATIONS_KEY = 'dsh.deepseekChat.conversations.v1';
     const DEFAULT_BASE_URL = 'https://api.deepseek.com';
-    const DEFAULT_MODEL = 'deepseek-chat';
+    const DEFAULT_MODEL = 'deepseek-flash';
+    /** Thinking levels accepted by `reasoning_effort`; `off` disables the mode. */
+    const THINKING_LEVELS = ['off', 'low', 'high', 'max'];
+    /** TTS voices offered by the speech API. */
+    const TTS_VOICES = ['stella', 'tide'];
+    /** The speech API caps a single synthesis at 10,000 billing characters. */
+    const TTS_MAX_CHARS = 9000;
+    /** The ASR API caps one upload at 120 seconds and 8 MiB. */
+    const RECORDING_LIMIT_SECONDS = 110;
 
     /* ------------------------------------------------------------------ copy */
 
@@ -69,6 +77,34 @@ window.__ModuleLoader__.load({
       settingsSaved: 'Settings saved',
       untitled: 'Untitled',
       backToConversation: 'Back to the conversation',
+      webSearch: 'Web search',
+      thinking: 'Thinking',
+      thinkOff: 'Off',
+      thinkLow: 'Low',
+      thinkHigh: 'High',
+      thinkMax: 'Max',
+      sources: 'Sources',
+      searching: 'Searching the web…',
+      searchFailed: 'Web search failed; answering without sources',
+      voiceInput: 'Voice input',
+      listening: 'Listening… tap to stop',
+      transcribing: 'Transcribing…',
+      recordDenied: 'Microphone access was denied',
+      recordFailed: 'Could not start the microphone',
+      recordTooLong: 'Recording stopped after 110 seconds',
+      speak: 'Read aloud',
+      stopReading: 'Stop reading',
+      speakFailed: 'Could not synthesize speech',
+      ocr: 'Scan text (OCR)',
+      ocrWorking: 'Recognizing text…',
+      ocrDone: 'Text recognized and added to the draft',
+      ocrEmpty: 'No text was recognized in that file',
+      ocrFailed: 'OCR failed',
+      ocrHint: 'PDF, Word, PowerPoint, or an image',
+      voice: 'Voice',
+      voiceStella: 'Stella · female',
+      voiceTide: 'Tide · male',
+      speechHint: 'Voice input and read-aloud use your API key and appear on your bill.',
     };
 
     const zh = {
@@ -112,6 +148,34 @@ window.__ModuleLoader__.load({
       settingsSaved: '设置已保存',
       untitled: '未命名',
       backToConversation: '返回对话',
+      webSearch: '联网',
+      thinking: '思考',
+      thinkOff: '关闭',
+      thinkLow: '低',
+      thinkHigh: '高',
+      thinkMax: '最高',
+      sources: '来源',
+      searching: '正在联网搜索…',
+      searchFailed: '联网搜索失败，改为不引用来源回答',
+      voiceInput: '语音输入',
+      listening: '正在录音…点击结束',
+      transcribing: '正在识别语音…',
+      recordDenied: '麦克风权限被拒绝',
+      recordFailed: '无法启动麦克风',
+      recordTooLong: '录音已自动停止（110 秒）',
+      speak: '朗读',
+      stopReading: '停止朗读',
+      speakFailed: '语音合成失败',
+      ocr: '识别文字（OCR）',
+      ocrWorking: '正在识别文字…',
+      ocrDone: '已识别，文字已加入输入框',
+      ocrEmpty: '这个文件里没有识别到文字',
+      ocrFailed: 'OCR 识别失败',
+      ocrHint: '支持 PDF、Word、PowerPoint 或图片',
+      voice: '音色',
+      voiceStella: '海星 · 女声',
+      voiceTide: '暗潮 · 男声',
+      speechHint: '语音输入与朗读使用你的 API Key，会产生相应费用。',
     };
 
     /* ----------------------------------------------------------------- utils */
@@ -155,6 +219,9 @@ window.__ModuleLoader__.load({
         apiKey: typeof stored.apiKey === 'string' ? stored.apiKey : '',
         baseUrl: typeof stored.baseUrl === 'string' && stored.baseUrl ? stored.baseUrl : DEFAULT_BASE_URL,
         model: typeof stored.model === 'string' && stored.model ? stored.model : DEFAULT_MODEL,
+        thinking: THINKING_LEVELS.indexOf(stored.thinking) >= 0 ? stored.thinking : 'high',
+        webSearch: stored.webSearch === true,
+        voice: TTS_VOICES.indexOf(stored.voice) >= 0 ? stored.voice : 'stella',
       };
     }
 
@@ -181,6 +248,16 @@ window.__ModuleLoader__.load({
               reasoning: typeof m.reasoning === 'string' ? m.reasoning : '',
               error: typeof m.error === 'string' ? m.error : '',
               stopped: m.stopped === true,
+              sources: Array.isArray(m.sources)
+                ? m.sources
+                  .filter((s) => s && typeof s.url === 'string')
+                  .map((s) => ({
+                    title: typeof s.title === 'string' ? s.title : '',
+                    url: s.url,
+                    snippet: typeof s.snippet === 'string' ? s.snippet : '',
+                    site: typeof s.site === 'string' ? s.site : '',
+                  }))
+                : [],
             })),
         });
       }
@@ -210,10 +287,10 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------------------------------------- markdown */
 
-    const INLINE_PATTERN = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(\[[^\]\n]*\]\([^)\s]+\))|((?:https?:\/\/)[^\s<>()]+)/g;
+    const INLINE_PATTERN = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(\[[^\]\n]*\]\([^)\s]+\))|((?:https?:\/\/)[^\s<>()]+)|(\[\d{1,2}\])/g;
 
-    /** Build inline nodes (code, emphasis, links) for one line of text. */
-    function renderInline(text, keyPrefix) {
+    /** Build inline nodes (code, emphasis, links, citation chips) for one line of text. */
+    function renderInline(text, keyPrefix, sources) {
       const nodes = [];
       if (!text) return nodes;
       let last = 0;
@@ -233,11 +310,20 @@ window.__ModuleLoader__.load({
           nodes.push(h('del', { key }, token.slice(2, -2)));
         } else if (token.startsWith('*') || token.startsWith('_')) {
           nodes.push(h('em', { key }, token.slice(1, -1)));
-        } else if (token.startsWith('[')) {
+        } else if (token.charAt(0) === '[' && token.indexOf('](') > 0) {
           const split = token.indexOf('](');
           const label = token.slice(1, split);
           const href = token.slice(split + 2, -1);
           nodes.push(h('a', { key, href, target: '_blank', rel: 'noreferrer noopener' }, label || href));
+        } else if (/^\[\d{1,2}\]$/.test(token)) {
+          const number = Number(token.slice(1, -1));
+          const source = sources && sources[number - 1];
+          if (source) {
+            nodes.push(h('sup', { key, className: 'dsc-cite' },
+              h('a', { href: source.url, target: '_blank', rel: 'noreferrer noopener', title: source.title || source.url }, String(number))));
+          } else {
+            nodes.push(token);
+          }
         } else {
           nodes.push(h('a', { key, href: token, target: '_blank', rel: 'noreferrer noopener' }, token));
         }
@@ -254,7 +340,8 @@ window.__ModuleLoader__.load({
     }
 
     /** Group a run of lines that do not start a new block into a paragraph. */
-    function startsBlock(line) {      return (
+    function startsBlock(line) {
+      return (
         /^\s*(```|~~~)/.test(line) ||
         /^\s{0,3}#{1,6}\s+/.test(line) ||
         /^\s*>/.test(line) ||
@@ -378,27 +465,27 @@ window.__ModuleLoader__.load({
     }
 
     /** Render markdown source as React nodes. */
-    function renderMarkdown(source, t, keyBase) {
+    function renderMarkdown(source, t, keyBase, sources) {
       const blocks = parseBlocksCached(source);
       return blocks.map((block, index) => {
         const key = keyBase + '-b' + index;
         if (block.type === 'code') return h(CodeBlock, { key, code: block.text, lang: block.lang, t });
-        if (block.type === 'heading') return h('h' + block.level, { key, className: 'dsc-mdHeading' }, renderInline(block.text, key));
+        if (block.type === 'heading') return h('h' + block.level, { key, className: 'dsc-mdHeading' }, renderInline(block.text, key, sources));
         if (block.type === 'hr') return h('hr', { key, className: 'dsc-mdRule' });
         if (block.type === 'quote') {
-          return h('blockquote', { key, className: 'dsc-mdQuote' }, renderInline(block.text, key));
+          return h('blockquote', { key, className: 'dsc-mdQuote' }, renderInline(block.text, key, sources));
         }
         if (block.type === 'table') {
           return h('div', { key, className: 'dsc-tableWrap' },
             h('table', { className: 'dsc-table' },
-              h('thead', null, h('tr', null, block.head.map((cell, cellIndex) => h('th', { key: 'h' + cellIndex }, renderInline(cell, key + '-h' + cellIndex))))),
-              h('tbody', null, block.rows.map((row, rowIndex) => h('tr', { key: 'r' + rowIndex }, row.map((cell, cellIndex) => h('td', { key: 'c' + cellIndex }, renderInline(cell, key + '-r' + rowIndex + 'c' + cellIndex))))))));
+              h('thead', null, h('tr', null, block.head.map((cell, cellIndex) => h('th', { key: 'h' + cellIndex }, renderInline(cell, key + '-h' + cellIndex, sources))))),
+              h('tbody', null, block.rows.map((row, rowIndex) => h('tr', { key: 'r' + rowIndex }, row.map((cell, cellIndex) => h('td', { key: 'c' + cellIndex }, renderInline(cell, key + '-r' + rowIndex + 'c' + cellIndex, sources))))))));
         }
         if (block.type === 'list') {
-          const children = block.items.map((item, itemIndex) => h('li', { key: 'l' + itemIndex }, renderInline(item, key + '-l' + itemIndex)));
+          const children = block.items.map((item, itemIndex) => h('li', { key: 'l' + itemIndex }, renderInline(item, key + '-l' + itemIndex, sources)));
           return h(block.ordered ? 'ol' : 'ul', { key, className: 'dsc-mdList' }, children);
         }
-        return h('p', { key, className: 'dsc-mdPara' }, renderInline(block.text, key));
+        return h('p', { key, className: 'dsc-mdPara' }, renderInline(block.text, key, sources));
       });
     }
 
@@ -433,10 +520,16 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Normalize a base URL the way the original app does. */
+    /** The chat and tool endpoints derived from one base URL. */
     function endpoints(baseUrl) {
       const base = String(baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
-      return { chat: base + '/chat/completions' };
+      return {
+        chat: base + '/chat/completions',
+        search: base + '/v1/tools/search',
+        ocr: base + '/v1/tools/ocr',
+        asr: base + '/v1/tools/asr',
+        tts: base + '/v1/tools/tts',
+      };
     }
 
     /** Turn an HTTP failure into a message the panel can show. */
@@ -463,6 +556,14 @@ window.__ModuleLoader__.load({
      */
     async function streamReply(options) {
       const { settings, messages, signal, onDelta } = options;
+      const body = { model: settings.model, messages, stream: true };
+      // Thinking mode defaults to on at `high` on the service; only send what the
+      // user chose so an older model that rejects the fields keeps working.
+      if (settings.thinking === 'off') body.thinking = { type: 'disabled' };
+      else if (THINKING_LEVELS.indexOf(settings.thinking) > 0) {
+        body.thinking = { type: 'enabled' };
+        body.reasoning_effort = settings.thinking;
+      }
       const response = await fetch(endpoints(settings.baseUrl).chat, {
         method: 'POST',
         signal,
@@ -471,7 +572,7 @@ window.__ModuleLoader__.load({
           accept: 'text/event-stream',
           authorization: 'Bearer ' + String(settings.apiKey).trim(),
         },
-        body: JSON.stringify({ model: settings.model, messages, stream: true }),
+        body: JSON.stringify(body),
       });
       if (!response.ok) {
         let body = '';
@@ -549,6 +650,266 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /* ------------------------------------------------------------ tool calls */
+
+    /** Extract a readable error from any failed tool response. */
+    async function failedResponse(response, prefix) {
+      let body = '';
+      try {
+        body = await response.text();
+      } catch (error) {
+        body = '';
+      }
+      try {
+        const parsed = JSON.parse(body.trim());
+        if (parsed && parsed.error && parsed.error.message) {
+          return new Error((prefix ? prefix + ' · ' : '') + parsed.error.message);
+        }
+      } catch (error) {
+        /* plain text or padded body */
+      }
+      const trimmed = body.trim();
+      return new Error((prefix ? prefix + ' · ' : '') + 'HTTP ' + response.status + (trimmed ? ' · ' + trimmed.slice(0, 200) : ''));
+    }
+
+    /**
+     * Search the web through `POST /v1/tools/search`.
+     * @param options.settings - resolved API settings.
+     * @param options.query - the user's question or a rewritten query.
+     * @param options.count - how many results to ask for.
+     * @param options.signal - abort signal owned by the caller.
+     * @returns the result rows, newest and most relevant first.
+     */
+    async function searchWeb(options) {
+      const { settings, query, count, signal } = options;
+      const question = String(query).trim();
+      if (!question) return [];
+      const response = await fetch(endpoints(settings.baseUrl).search, {
+        method: 'POST',
+        signal,
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer ' + String(settings.apiKey).trim(),
+        },
+        body: JSON.stringify({
+          query: question.length > 128 ? question.slice(0, 128) : question,
+          ori_question: question.length > 128 ? question.slice(0, 128) : question,
+          count: count || 5,
+          need_content: false,
+        }),
+      });
+      if (!response.ok) throw await failedResponse(response, 'search');
+      const body = await response.json();
+      const results = body && Array.isArray(body.results) ? body.results : [];
+      return results
+        .filter((item) => item && typeof item.url === 'string')
+        .map((item) => ({
+          title: typeof item.title === 'string' ? item.title : '',
+          url: item.url,
+          snippet: typeof item.snippet === 'string' && item.snippet
+            ? item.snippet
+            : typeof item.summary === 'string' ? item.summary : '',
+          site: typeof item.site_name === 'string' ? item.site_name : '',
+          date: typeof item.date === 'string' ? item.date : '',
+        }));
+    }
+
+    /**
+     * Turn search rows into the context message that precedes the question.
+     * The answer instructions keep citations in the `[n]` form the UI links back.
+     */
+    function searchContext(question, sources) {
+      if (!sources.length) return '';
+      const lines = sources.map((source, index) => {
+        const head = '[' + (index + 1) + '] ' + (source.title || source.url);
+        const parts = [head, 'URL: ' + source.url];
+        if (source.site) parts.push('站点: ' + source.site);
+        if (source.snippet) parts.push('摘要: ' + source.snippet);
+        return parts.join('\n');
+      });
+      return [
+        '以下是针对用户问题「' + question + '」刚刚检索到的网页搜索结果：',
+        '',
+        lines.join('\n\n'),
+        '',
+        '回答要求：优先使用上述结果作答；引用某条结果时在句末标注 [序号]，例如 [1]；不要编造结果之外的事实；如果结果不足以回答，请明确说明。',
+      ].join('\n');
+    }
+
+    /** History plus the search context, without mutating the caller's array. */
+    function withSearchContext(history, question, sources) {
+      const context = searchContext(question, sources);
+      if (!context) return history;
+      return [{ role: 'system', content: context }].concat(history);
+    }
+
+    /**
+     * Recognize text in a document or image through `POST /v1/tools/ocr`.
+     * @param options.settings - resolved API settings.
+     * @param options.file - the picked `File`.
+     * @param options.signal - abort signal owned by the caller.
+     * @returns the recognized text, pages joined by a blank line.
+     */
+    async function ocrFile(options) {
+      const { settings, file, signal } = options;
+      const form = new FormData();
+      form.append('purpose', 'text_recognition');
+      form.append('file', file, file.name || 'upload');
+      const response = await fetch(endpoints(settings.baseUrl).ocr, {
+        method: 'POST',
+        signal,
+        headers: { authorization: 'Bearer ' + String(settings.apiKey).trim() },
+        body: form,
+      });
+      if (!response.ok) throw await failedResponse(response, 'ocr');
+      const raw = await response.text();
+      let body;
+      try {
+        // The service pads the body with newlines while it works.
+        body = JSON.parse(raw.trim());
+      } catch (error) {
+        throw new Error('ocr · ' + raw.slice(0, 200));
+      }
+      if (body && body.error && body.error.message) throw new Error('ocr · ' + body.error.message);
+      const pages = body && Array.isArray(body.pages) ? body.pages : [];
+      return pages
+        .map((page) => (page && typeof page.text === 'string' ? page.text.trim() : ''))
+        .filter(Boolean)
+        .join('\n\n');
+    }
+
+    /**
+     * Transcribe one recording through `POST /v1/tools/asr`.
+     * @param options.settings - resolved API settings.
+     * @param options.blob - WAV or Ogg Opus audio, at most 120 seconds.
+     * @param options.filename - name shown in the multipart form.
+     * @param options.signal - abort signal owned by the caller.
+     */
+    async function transcribeAudio(options) {
+      const { settings, blob, filename, signal } = options;
+      if (blob.size > 8 * 1024 * 1024) throw new Error('asr · recording is larger than 8 MiB');
+      const form = new FormData();
+      form.append('file', blob, filename || 'recording.wav');
+      const response = await fetch(endpoints(settings.baseUrl).asr, {
+        method: 'POST',
+        signal,
+        headers: { authorization: 'Bearer ' + String(settings.apiKey).trim() },
+        body: form,
+      });
+      if (!response.ok) throw await failedResponse(response, 'asr');
+      const body = await response.json();
+      if (!body || typeof body.text !== 'string') throw new Error('asr · unexpected response');
+      return body.text;
+    }
+
+    /**
+     * Synthesize speech through `POST /v1/tools/tts`.
+     * @param options.settings - resolved API settings.
+     * @param options.text - text to read, already trimmed.
+     * @param options.signal - abort signal owned by the caller.
+     * @returns an audio blob (`audio/wav`) ready for an `Audio` element.
+     */
+    async function synthesizeSpeech(options) {
+      const { settings, text, signal } = options;
+      const spoken = String(text).trim().slice(0, TTS_MAX_CHARS);
+      if (!spoken) throw new Error('tts · empty text');
+      const response = await fetch(endpoints(settings.baseUrl).tts, {
+        method: 'POST',
+        signal,
+        headers: {
+          'content-type': 'application/json',
+          authorization: 'Bearer ' + String(settings.apiKey).trim(),
+        },
+        body: JSON.stringify({
+          text: spoken,
+          voice_id: settings.voice,
+          format: 'wav',
+          filter_markdown: true,
+        }),
+      });
+      if (!response.ok) throw await failedResponse(response, 'tts');
+      return response.blob();
+    }
+
+    /** Strip the parts of a reply that should not be read aloud. */
+    function readableText(markdown) {
+      return String(markdown)
+        .replace(/```[\s\S]*?```/g, ' ')
+        .replace(/`([^`]+)`/g, '$1')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+        .replace(/[*_~>#|]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    /** Encode decoded audio as 16 kHz mono 16-bit PCM WAV, the ASR-preferred shape. */
+    async function encodeWav(blob) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error('audio is unavailable in this browser');
+      const bytes = await blob.arrayBuffer();
+      const decoder = new AudioContextClass();
+      let decoded;
+      try {
+        decoded = await decoder.decodeAudioData(bytes.slice(0));
+      } finally {
+        if (decoder.close) decoder.close();
+      }
+      const rate = 16000;
+      const frames = Math.max(1, Math.ceil(decoded.duration * rate));
+      const OfflineClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      let samples;
+      if (OfflineClass) {
+        const offline = new OfflineClass(1, frames, rate);
+        const source = offline.createBufferSource();
+        source.buffer = decoded;
+        source.connect(offline.destination);
+        source.start();
+        const rendered = await offline.startRendering();
+        samples = rendered.getChannelData(0);
+      } else {
+        const channel = decoded.getChannelData(0);
+        const ratio = decoded.sampleRate / rate;
+        samples = new Float32Array(frames);
+        for (let i = 0; i < frames; i += 1) samples[i] = channel[Math.min(channel.length - 1, Math.round(i * ratio))] || 0;
+      }
+      const buffer = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(buffer);
+      const writeAscii = (offset, text) => {
+        for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+      };
+      writeAscii(0, 'RIFF');
+      view.setUint32(4, 36 + samples.length * 2, true);
+      writeAscii(8, 'WAVE');
+      writeAscii(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 1, true);
+      view.setUint32(24, rate, true);
+      view.setUint32(28, rate * 2, true);
+      view.setUint16(32, 2, true);
+      view.setUint16(34, 16, true);
+      writeAscii(36, 'data');
+      view.setUint32(40, samples.length * 2, true);
+      let offset = 44;
+      for (let i = 0; i < samples.length; i += 1) {
+        const sample = Math.max(-1, Math.min(1, samples[i]));
+        view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+        offset += 2;
+      }
+      return new Blob([view], { type: 'audio/wav' });
+    }
+
+    /** Pick a recorder MIME type the browser accepts. */
+    function preferredRecordingType() {
+      const candidates = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm'];
+      if (typeof window.MediaRecorder === 'undefined') return '';
+      for (let i = 0; i < candidates.length; i += 1) {
+        if (window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+      }
+      return '';
+    }
+
     /* ----------------------------------------------------------------- styles */
 
     const CSS = `
@@ -568,7 +929,7 @@ window.__ModuleLoader__.load({
 html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-clearance, 0px); }
 .dsc-root *, .dsc-root *::before, .dsc-root *::after { box-sizing: border-box; }
 .dsc-root button { font: inherit; color: inherit; }
-.dsc-root textarea, .dsc-root input { font: inherit; color: inherit; }
+.dsc-root textarea, .dsc-root input, .dsc-root select { font: inherit; color: inherit; }
 .dsc-root :focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
 
 .dsc-rail {
@@ -823,6 +1184,122 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 }
 .dsc-send:disabled { background: var(--dsw-alias-state-idle-primary); cursor: default; }
 .dsc-send[data-stop='true'] { background: var(--dsw-alias-label-primary); }
+
+.dsc-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.dsc-toolWrap { position: relative; }
+.dsc-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dsc-tool:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsc-tool:disabled { opacity: 0.5; cursor: default; }
+.dsc-tool[data-active='true'] {
+  border-color: var(--dsw-alias-brand-primary);
+  color: var(--dsw-alias-brand-primary);
+  background: transparent;
+}
+.dsc-tool[data-recording='true'] {
+  border-color: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-state-error-primary);
+}
+.dsc-toolLabel { font-variant-numeric: tabular-nums; }
+.dsc-recDot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-error-primary);
+  animation: dsc-pulse 1.1s ease-in-out infinite;
+}
+.dsc-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  min-width: 128px;
+  padding: 4px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-overlay);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+}
+.dsc-menuItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.dsc-menuItem:hover { background: var(--dsw-alias-bg-layer-2); }
+.dsc-menuItem[data-selected='true'] { color: var(--dsw-alias-brand-primary); font-weight: 500; }
+.dsc-menuItem .dsc-check { width: 11px; flex: none; }
+.dsc-stage { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
+.dsc-stage .dsc-caret { animation: none; }
+
+.dsc-sources { margin-top: 10px; }
+.dsc-sourcesHead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.dsc-sourcesHead:hover { color: var(--dsw-alias-label-primary); }
+.dsc-sourceList { margin: 8px 0 0; padding: 0; list-style: none; }
+.dsc-source {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px 0 6px 12px;
+  border-left: 2px solid var(--dsw-alias-border-l1);
+  margin-bottom: 6px;
+}
+.dsc-sourceTitle { color: var(--dsw-alias-label-primary); font-size: 12.5px; text-decoration: none; }
+.dsc-sourceTitle:hover { color: var(--dsw-alias-brand-primary); text-decoration: underline; }
+.dsc-sourceSite { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dsc-sourceSnippet {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dsc-cite { font-size: 0.72em; vertical-align: super; }
+.dsc-cite a {
+  display: inline-block;
+  min-width: 13px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-brand-primary);
+  text-decoration: none;
+  text-align: center;
+}
+.dsc-cite a:hover { text-decoration: underline; }
 .dsc-notice {
   max-width: 780px;
   margin: 0 auto 8px;
@@ -963,6 +1440,10 @@ h3.dsc-mdHeading { font-size: 15px; }
   .dsc-composerWrap { padding: 6px 12px 14px; }
   .dsc-welcome { padding-top: 8vh; }
   .dsc-userBubble { max-width: 88%; }
+  .dsc-composerHint { display: none; }
+  .dsc-tool { padding: 0 6px; }
+  .dsc-toolLabel { display: none; }
+  .dsc-tool[data-active='true'] .dsc-toolLabel { display: inline; }
 }
 @media (prefers-reduced-motion: reduce) {
   .dsc-caret { animation: none; }
@@ -1043,6 +1524,43 @@ h3.dsc-mdHeading { font-size: 15px; }
         h('path', { d: 'M11.1 2.7 13.3 4.9 5.6 12.6l-3.1.8.8-3.1z' }));
     }
 
+    function GlobeIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('circle', { cx: 8, cy: 8, r: 5.8 }),
+        h('path', { d: 'M2.4 8h11.2M8 2.2c1.5 1.6 2.3 3.6 2.3 5.8S9.5 12.2 8 13.8c-1.5-1.6-2.3-3.6-2.3-5.8S6.5 3.8 8 2.2z' }));
+    }
+
+    function BrainIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M8 3.2v9.6M5.6 3.9a2.1 2.1 0 0 0-2 2.6A2 2 0 0 0 4 10a2.1 2.1 0 0 0 3.4 2.2M10.4 3.9a2.1 2.1 0 0 1 2 2.6A2 2 0 0 1 12 10a2.1 2.1 0 0 1-3.4 2.2' }));
+    }
+
+    function MicIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('rect', { x: 6, y: 2.2, width: 4, height: 7, rx: 2 }),
+        h('path', { d: 'M3.6 7.6a4.4 4.4 0 0 0 8.8 0M8 12v1.8' }));
+    }
+
+    function FileIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M9.2 2.2H4.6a1.4 1.4 0 0 0-1.4 1.4v8.8a1.4 1.4 0 0 0 1.4 1.4h6.8a1.4 1.4 0 0 0 1.4-1.4V5.8z' }),
+        h('path', { d: 'M9.2 2.2v3.6h3.6M5.8 9.2h4.4M5.8 11.4h3' }));
+    }
+
+    function VolumeIcon(props) {
+      const off = props.off === true;
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M3 6.2h2.2L8.4 3.6v8.8L5.2 9.8H3z' }),
+        off
+          ? h('path', { d: 'M11 6.4l3.2 3.2M14.2 6.4 11 9.6' })
+          : h('path', { d: 'M10.6 6a2.8 2.8 0 0 1 0 4M12.4 4.4a5 5 0 0 1 0 7.2' }));
+    }
+
+    function CheckIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 11, height: 11, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M3 8.4l3.2 3.2L13 4.8' }));
+    }
+
     /* ------------------------------------------------------------ components */
 
     /** A media-query hook so the rail can become an overlay on narrow panels. */
@@ -1083,9 +1601,37 @@ h3.dsc-mdHeading { font-size: 15px; }
         open ? h('div', { className: 'dsc-reasoningBody' }, text) : null);
     }
 
-    /** One assistant message: reasoning, rendered body, streaming caret, actions. */
+    /** Search results attached to one answer, collapsed to a summary by default. */
+    function Sources(props) {
+      const { sources, t } = props;
+      const [open, setOpen] = useState(sources.length <= 3);
+      if (!sources || !sources.length) return null;
+      return h('div', { className: 'dsc-sources' },
+        h('button', {
+          type: 'button',
+          className: 'dsc-sourcesHead',
+          'aria-expanded': open,
+          onClick: () => setOpen((value) => !value),
+        },
+          h(GlobeIcon),
+          h('span', null, t('sources') + ' · ' + sources.length),
+          h('span', { 'aria-hidden': true }, open ? '–' : '+')),
+        open
+          ? h('ol', { className: 'dsc-sourceList' }, sources.map((source, index) => h('li', { key: index, className: 'dsc-source' },
+            h('a', {
+              className: 'dsc-sourceTitle',
+              href: source.url,
+              target: '_blank',
+              rel: 'noreferrer noopener',
+            }, (index + 1) + '. ' + (source.title || source.url)),
+            source.site ? h('span', { className: 'dsc-sourceSite' }, source.site) : null,
+            source.snippet ? h('span', { className: 'dsc-sourceSnippet' }, source.snippet) : null)))
+          : null);
+    }
+
+    /** One assistant message: search stage, reasoning, body, sources, and actions. */
     function AssistantMessage(props) {
-      const { message, streaming, onRegenerate, canRegenerate, t } = props;
+      const { message, streaming, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t } = props;
       const [copied, setCopied] = useState(false);
       const copy = useCallback(() => {
         copyText(message.content).then((ok) => {
@@ -1095,20 +1641,32 @@ h3.dsc-mdHeading { font-size: 15px; }
         });
       }, [message.content]);
       const hasBody = Boolean(message.content);
+      const searching = message.stage === 'searching';
+      const sources = message.sources || [];
       return h('div', { className: 'dsc-botRow' },
         h('div', { className: 'dsc-botHead' },
           h('span', { className: 'dsc-botMark' }, h(BrandMark, { size: 16 })),
           h('span', { className: 'dsc-botName' }, t('assistantName')),
-          streaming ? h('span', { className: 'dsc-liveDot' }) : null,
+          streaming && !searching ? h('span', { className: 'dsc-liveDot' }) : null,
           hasBody && !streaming
             ? h('span', { className: 'dsc-botActions' },
+              h('button', {
+                type: 'button',
+                className: 'dsc-plainAction',
+                disabled: speakPending,
+                title: speaking ? t('stopReading') : t('speak'),
+                onClick: onSpeak,
+              }, speaking ? t('stopReading') : speakPending ? '…' : t('speak')),
               h('button', { type: 'button', className: 'dsc-plainAction', onClick: copy }, copied ? t('copied') : t('copy')),
               canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null)
             : null),
         h(Reasoning, { text: message.reasoning, live: streaming && !hasBody, t }),
-        hasBody
-          ? h('div', { className: 'dsc-botBody' }, renderMarkdown(message.content, t, message.id), streaming ? h('span', { className: 'dsc-caret' }) : null)
-          : streaming ? h('div', { className: 'dsc-botBody' }, h('span', { className: 'dsc-caret' })) : null,
+        searching
+          ? h('div', { className: 'dsc-stage' }, h('span', { className: 'dsc-liveDot' }), h('span', null, t('searching')))
+          : hasBody
+            ? h('div', { className: 'dsc-botBody' }, renderMarkdown(message.content, t, message.id, sources), streaming ? h('span', { className: 'dsc-caret' }) : null)
+            : streaming ? h('div', { className: 'dsc-botBody' }, h('span', { className: 'dsc-caret' })) : null,
+        h(Sources, { sources, t }),
         message.error ? h('div', { className: 'dsc-error', role: 'alert' }, t('error') + ': ' + message.error) : null,
         message.stopped && !message.error ? h('div', { className: 'dsc-stopNote' }, t('stopped')) : null);
     }
@@ -1191,6 +1749,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [apiKey, setApiKey] = useState(settings.apiKey);
       const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
       const [model, setModel] = useState(settings.model);
+      const [voice, setVoice] = useState(settings.voice);
       const [confirming, setConfirming] = useState(false);
       const keyRef = useRef(null);
       useEffect(() => {
@@ -1198,11 +1757,12 @@ h3.dsc-mdHeading { font-size: 15px; }
         if (node) node.focus();
       }, []);
       const submit = () => {
-        onSave({
+        onSave(Object.assign({}, settings, {
           apiKey: apiKey.trim(),
           baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
           model: model.trim() || DEFAULT_MODEL,
-        });
+          voice,
+        }));
       };
       return h('div', {
         className: 'dsc-overlay',
@@ -1259,9 +1819,22 @@ h3.dsc-mdHeading { font-size: 15px; }
               onChange: (event) => setModel(event.target.value),
             }),
             h('datalist', { id: 'dsc-model-options' },
+              h('option', { value: 'deepseek-flash' }),
+              h('option', { value: 'deepseek-v4-pro' }),
               h('option', { value: 'deepseek-chat' }),
               h('option', { value: 'deepseek-reasoner' })),
             h('div', { className: 'dsc-fieldHint' }, t('modelHint'))),
+          h('div', { className: 'dsc-field' },
+            h('label', { className: 'dsc-label', htmlFor: 'dsc-voice' }, t('voice')),
+            h('select', {
+              id: 'dsc-voice',
+              className: 'dsc-inputText',
+              value: voice,
+              onChange: (event) => setVoice(event.target.value),
+            },
+              h('option', { value: 'stella' }, t('voiceStella')),
+              h('option', { value: 'tide' }, t('voiceTide'))),
+            h('div', { className: 'dsc-fieldHint' }, t('speechHint'))),
           h('div', { className: 'dsc-dialogFoot' },
             h('button', {
               type: 'button',
@@ -1302,11 +1875,21 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [streamingId, setStreamingId] = useState(null);
       const [notice, setNotice] = useState('');
       const [savedNotice, setSavedNotice] = useState('');
+      const [thinkMenuOpen, setThinkMenuOpen] = useState(false);
+      const [recState, setRecState] = useState('idle');
+      const [recSeconds, setRecSeconds] = useState(0);
+      const [ocrBusy, setOcrBusy] = useState(false);
+      const [ttsId, setTtsId] = useState(null);
+      const [ttsPendingId, setTtsPendingId] = useState(null);
       const inputRef = useRef(null);
       const scrollRef = useRef(null);
       const stickRef = useRef(true);
       const abortRef = useRef(null);
       const saveTimerRef = useRef(null);
+      const recRef = useRef(null);
+      const ttsRef = useRef(null);
+      const fileRef = useRef(null);
+      const thinkWrapRef = useRef(null);
       const narrow = useMediaQuery('(max-width: 760px)');
 
       const active = useMemo(
@@ -1334,9 +1917,29 @@ h3.dsc-mdHeading { font-size: 15px; }
       const latestConversations = useRef(conversations);
       latestConversations.current = conversations;
 
-      /* Abort an in-flight reply and flush the last state when the panel unmounts. */
+      /* Abort an in-flight reply, stop audio, and flush the last state on unmount. */
       useEffect(() => () => {
         if (abortRef.current) abortRef.current.abort();
+        const session = recRef.current;
+        if (session) {
+          if (session.timer !== null) window.clearInterval(session.timer);
+          try {
+            session.stream.getTracks().forEach((track) => track.stop());
+          } catch (error) {
+            /* already released */
+          }
+          recRef.current = null;
+        }
+        const audio = ttsRef.current;
+        if (audio) {
+          try {
+            audio.audio.pause();
+          } catch (error) {
+            /* already stopped */
+          }
+          if (audio.url) URL.revokeObjectURL(audio.url);
+          ttsRef.current = null;
+        }
         writeJson(CONVERSATIONS_KEY, latestConversations.current);
       }, []);
 
@@ -1391,17 +1994,41 @@ h3.dsc-mdHeading { font-size: 15px; }
         }));
       }, []);
 
-      const runReply = useCallback(async (conversationId, messageId, history) => {
+      /**
+       * Stream one reply, optionally running a web search first.
+       * @param conversationId - conversation owning the reply.
+       * @param messageId - placeholder message that receives the content.
+       * @param history - `{ role, content }` rows already sent for this turn.
+       * @param searchQuery - when set, search this text and answer against the results.
+       */
+      const runReply = useCallback(async (conversationId, messageId, history, searchQuery) => {
         const controller = new AbortController();
         abortRef.current = controller;
         setStreamingId(messageId);
         stickRef.current = true;
         let content = '';
         let reasoning = '';
+        let messages = history;
         try {
+          if (searchQuery) {
+            patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: 'searching' }));
+            try {
+              const found = await searchWeb({ settings, query: searchQuery, count: 5, signal: controller.signal });
+              const sources = found.slice(0, 5).map((item) => ({
+                title: item.title, url: item.url, snippet: item.snippet, site: item.site,
+              }));
+              patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: '', sources }));
+              messages = withSearchContext(history, searchQuery, found.slice(0, 5));
+            } catch (error) {
+              if (error && error.name === 'AbortError') throw error;
+              patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: '' }));
+              setNotice(t('searchFailed') + ': ' + (error && error.message ? error.message : String(error)));
+            }
+          }
+          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { stage: 'streaming' }));
           await streamReply({
             settings,
-            messages: history,
+            messages,
             signal: controller.signal,
             onDelta: (delta) => {
               if (delta.content) content += delta.content;
@@ -1409,14 +2036,15 @@ h3.dsc-mdHeading { font-size: 15px; }
               patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning }));
             },
           });
-          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning }));
+          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning, stage: '' }));
         } catch (error) {
           if (error && error.name === 'AbortError') {
-            patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning, stopped: true }));
+            patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { content, reasoning, stage: '', stopped: true }));
           } else {
             patchMessage(conversationId, messageId, (message) => Object.assign({}, message, {
               content,
               reasoning,
+              stage: '',
               error: (error && error.message ? error.message : String(error)),
             }));
           }
@@ -1424,7 +2052,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           abortRef.current = null;
           setStreamingId(null);
         }
-      }, [patchMessage, settings]);
+      }, [patchMessage, settings, t]);
 
       const findConversation = useCallback((id) => conversations.find((item) => item.id === id) || null, [conversations]);
 
@@ -1436,8 +2064,8 @@ h3.dsc-mdHeading { font-size: 15px; }
           setSettingsOpen(true);
           return;
         }
-        const userMessage = { id: uid(), role: 'user', content: text, reasoning: '', error: '', stopped: false };
-        const botMessage = { id: uid(), role: 'assistant', content: '', reasoning: '', error: '', stopped: false };
+        const userMessage = { id: uid(), role: 'user', content: text, reasoning: '', error: '', stopped: false, sources: [] };
+        const botMessage = { id: uid(), role: 'assistant', content: '', reasoning: '', error: '', stopped: false, sources: [], stage: '' };
         const target = activeId ? findConversation(activeId) : null;
         const history = [];
         let conversationId = activeId;
@@ -1467,16 +2095,269 @@ h3.dsc-mdHeading { font-size: 15px; }
         setDraft('');
         setNotice('');
         stickRef.current = true;
-        runReply(conversationId, botMessage.id, history);
+        runReply(conversationId, botMessage.id, history, settings.webSearch ? text : '');
         window.setTimeout(() => {
           const node = inputRef.current;
           if (node) node.focus();
         }, 0);
-      }, [activeId, busy, draft, findConversation, runReply, settings.apiKey, t, updateConversation]);
+      }, [activeId, busy, draft, findConversation, runReply, settings.apiKey, settings.webSearch, t, updateConversation]);
 
       const stop = useCallback(() => {
         if (abortRef.current) abortRef.current.abort();
       }, []);
+
+      /* Merge one settings change and persist it; the panel reads the result. */
+      const patchSettings = useCallback((patch) => {
+        setSettings((previous) => {
+          const next = Object.assign({}, previous, patch);
+          writeJson(SETTINGS_KEY, next);
+          return next;
+        });
+      }, []);
+
+      const toggleWebSearch = useCallback(() => {
+        patchSettings({ webSearch: !settings.webSearch });
+      }, [patchSettings, settings.webSearch]);
+
+      const chooseThinking = useCallback((level) => {
+        patchSettings({ thinking: level });
+        setThinkMenuOpen(false);
+      }, [patchSettings]);
+
+      /* Close the thinking menu on an outside pointer press or Escape. */
+      useEffect(() => {
+        if (!thinkMenuOpen) return undefined;
+        const onPointerDown = (event) => {
+          const wrap = thinkWrapRef.current;
+          if (wrap && wrap.contains(event.target)) return;
+          setThinkMenuOpen(false);
+        };
+        const onKey = (event) => {
+          if (event.key === 'Escape') setThinkMenuOpen(false);
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        document.addEventListener('keydown', onKey);
+        return () => {
+          document.removeEventListener('mousedown', onPointerDown);
+          document.removeEventListener('keydown', onKey);
+        };
+      }, [thinkMenuOpen]);
+
+      /** Add recognized or dictated text to the draft without losing what is typed. */
+      const appendToDraft = useCallback((text) => {
+        const value = String(text || '').trim();
+        if (!value) return;
+        setDraft((previous) => (previous.trim() ? previous.replace(/\s+$/, '') + ' ' + value : value));
+        window.setTimeout(() => {
+          const node = inputRef.current;
+          if (node) node.focus();
+        }, 0);
+      }, []);
+
+      /** Send one recording to ASR and put the transcript in the draft. */
+      const transcribe = useCallback(async (blob) => {
+        setRecState('transcribing');
+        try {
+          const type = String(blob.type || '').toLowerCase();
+          let audio = blob;
+          let filename = 'recording.ogg';
+          if (type.indexOf('ogg') < 0) {
+            audio = await encodeWav(blob);
+            filename = 'recording.wav';
+          }
+          const text = await transcribeAudio({ settings, blob: audio, filename });
+          if (text && text.trim()) appendToDraft(text);
+        } catch (error) {
+          setNotice((error && error.message) || t('transcribing'));
+        } finally {
+          setRecState('idle');
+        }
+      }, [appendToDraft, settings, t]);
+
+      const stopRecorder = useCallback(() => {
+        const session = recRef.current;
+        if (!session) return;
+        if (session.timer !== null) window.clearInterval(session.timer);
+        session.timer = null;
+        if (session.recorder && session.recorder.state !== 'inactive') {
+          session.recorder.stop();
+        }
+      }, []);
+
+      /** Start or stop one voice-input recording. */
+      const toggleRecording = useCallback(async () => {
+        if (recState !== 'idle') {
+          stopRecorder();
+          return;
+        }
+        if (!String(settings.apiKey).trim()) {
+          setNotice(t('missingKey'));
+          setSettingsOpen(true);
+          return;
+        }
+        const media = window.navigator && window.navigator.mediaDevices;
+        if (!media || !media.getUserMedia || typeof window.MediaRecorder === 'undefined') {
+          setNotice(t('recordFailed'));
+          return;
+        }
+        let stream;
+        try {
+          stream = await media.getUserMedia({ audio: true });
+        } catch (error) {
+          setNotice(error && error.name === 'NotAllowedError' ? t('recordDenied') : t('recordFailed'));
+          return;
+        }
+        const mimeType = preferredRecordingType();
+        let recorder;
+        try {
+          recorder = new window.MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        } catch (error) {
+          stream.getTracks().forEach((track) => track.stop());
+          setNotice(t('recordFailed'));
+          return;
+        }
+        const chunks = [];
+        const session = { recorder, chunks, stream, timer: null, mimeType: mimeType || recorder.mimeType || '' };
+        recRef.current = session;
+        recorder.ondataavailable = (event) => {
+          if (event.data && event.data.size) chunks.push(event.data);
+        };
+        recorder.onstop = () => {
+          const current = recRef.current;
+          recRef.current = null;
+          if (current && current.timer !== null) window.clearInterval(current.timer);
+          if (current) {
+            current.stream.getTracks().forEach((track) => {
+              try {
+                track.stop();
+              } catch (error) {
+                /* already released */
+              }
+            });
+          }
+          setRecSeconds(0);
+          const type = session.mimeType ? session.mimeType.split(';')[0] : 'audio/ogg';
+          const blob = new Blob(chunks, { type });
+          if (!blob.size) {
+            setRecState('idle');
+            setNotice(t('recordFailed'));
+            return;
+          }
+          transcribe(blob);
+        };
+        try {
+          recorder.start();
+        } catch (error) {
+          stream.getTracks().forEach((track) => track.stop());
+          recRef.current = null;
+          setNotice(t('recordFailed'));
+          return;
+        }
+        setRecState('recording');
+        setRecSeconds(0);
+        const startedAt = Date.now();
+        session.timer = window.setInterval(() => {
+          const seconds = Math.floor((Date.now() - startedAt) / 1000);
+          setRecSeconds(seconds);
+          if (seconds >= RECORDING_LIMIT_SECONDS) {
+            setNotice(t('recordTooLong'));
+            stopRecorder();
+          }
+        }, 500);
+      }, [recState, settings.apiKey, stopRecorder, t, transcribe]);
+
+      /** Recognize one picked or pasted file and drop the text into the draft. */
+      const runOcr = useCallback(async (file) => {
+        if (!file) return;
+        if (ocrBusy) return;
+        if (!String(settings.apiKey).trim()) {
+          setNotice(t('missingKey'));
+          setSettingsOpen(true);
+          return;
+        }
+        setOcrBusy(true);
+        setNotice(t('ocrWorking'));
+        try {
+          const text = await ocrFile({ settings, file });
+          if (text && text.trim()) {
+            appendToDraft(text);
+            setNotice(t('ocrDone'));
+          } else {
+            setNotice(t('ocrEmpty'));
+          }
+        } catch (error) {
+          setNotice((error && error.message) || t('ocrFailed'));
+        } finally {
+          setOcrBusy(false);
+          if (fileRef.current) fileRef.current.value = '';
+        }
+      }, [appendToDraft, ocrBusy, settings, t]);
+
+      const onComposerPaste = useCallback((event) => {
+        const items = event.clipboardData && event.clipboardData.items;
+        if (!items) return;
+        for (let i = 0; i < items.length; i += 1) {
+          const item = items[i];
+          if (item.kind === 'file' && /^image\//.test(item.type)) {
+            const file = item.getAsFile();
+            if (file) {
+              event.preventDefault();
+              runOcr(file);
+            }
+            return;
+          }
+        }
+      }, [runOcr]);
+
+      const stopSpeaking = useCallback(() => {
+        const current = ttsRef.current;
+        ttsRef.current = null;
+        if (current) {
+          try {
+            current.audio.pause();
+          } catch (error) {
+            /* already stopped */
+          }
+          if (current.url) URL.revokeObjectURL(current.url);
+        }
+        setTtsId(null);
+      }, []);
+
+      /** Read one answer aloud, or stop the one already playing. */
+      const toggleSpeak = useCallback(async (message) => {
+        if (!message || ttsPendingId) return;
+        if (ttsId === message.id) {
+          stopSpeaking();
+          return;
+        }
+        if (!String(settings.apiKey).trim()) {
+          setNotice(t('missingKey'));
+          setSettingsOpen(true);
+          return;
+        }
+        const text = readableText(message.content);
+        if (!text) return;
+        stopSpeaking();
+        setTtsPendingId(message.id);
+        try {
+          const blob = await synthesizeSpeech({ settings, text });
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          ttsRef.current = { audio, url };
+          audio.onended = () => stopSpeaking();
+          audio.onerror = () => {
+            stopSpeaking();
+            setNotice(t('speakFailed'));
+          };
+          setTtsId(message.id);
+          await audio.play();
+        } catch (error) {
+          stopSpeaking();
+          setNotice(t('speakFailed') + (error && error.message ? ': ' + error.message : ''));
+        } finally {
+          setTtsPendingId(null);
+        }
+      }, [settings, stopSpeaking, t, ttsId, ttsPendingId]);
 
       const regenerate = useCallback((conversation) => {
         if (!conversation || busy) return;
@@ -1490,9 +2371,9 @@ h3.dsc-mdHeading { font-size: 15px; }
         }
         if (!history.length) return;
         patchMessage(conversation.id, last.id, (message) => Object.assign({}, message, {
-          content: '', reasoning: '', error: '', stopped: false,
+          content: '', reasoning: '', error: '', stopped: false, stage: '', sources: [],
         }));
-        runReply(conversation.id, last.id, history);
+        runReply(conversation.id, last.id, history, '');
       }, [busy, patchMessage, runReply]);
 
       const startNewChat = useCallback(() => {
@@ -1617,9 +2498,122 @@ h3.dsc-mdHeading { font-size: 15px; }
               streaming: message.id === streamingId,
               canRegenerate,
               onRegenerate: () => regenerate(active),
+              onSpeak: () => toggleSpeak(message),
+              speaking: ttsId === message.id,
+              speakPending: ttsPendingId === message.id,
               t,
             }));
         }));
+
+      const thinkingLabel = t(
+        settings.thinking === 'off' ? 'thinkOff'
+          : settings.thinking === 'low' ? 'thinkLow'
+            : settings.thinking === 'max' ? 'thinkMax' : 'thinkHigh',
+      );
+      const thinkingMenu = thinkMenuOpen
+        ? h('div', { className: 'dsc-popover', role: 'menu', 'aria-label': t('thinking') },
+          THINKING_LEVELS.map((level) => {
+            const label = t(level === 'off' ? 'thinkOff' : level === 'low' ? 'thinkLow' : level === 'max' ? 'thinkMax' : 'thinkHigh');
+            return h('button', {
+              key: level,
+              type: 'button',
+              role: 'menuitemradio',
+              className: 'dsc-menuItem',
+              'data-selected': settings.thinking === level ? 'true' : 'false',
+              'aria-checked': settings.thinking === level ? 'true' : 'false',
+              onClick: () => chooseThinking(level),
+            },
+              h('span', { className: 'dsc-check' }, settings.thinking === level ? h(CheckIcon) : null),
+              h('span', null, label));
+          }))
+        : null;
+
+      const recordingLabel = recState === 'recording'
+        ? recSeconds + 's'
+        : recState === 'transcribing' ? t('transcribing') : '';
+
+      const composer = h('div', { className: 'dsc-composer' },
+        h('textarea', {
+          ref: inputRef,
+          className: 'dsc-input',
+          rows: 1,
+          value: draft,
+          placeholder: t('placeholder'),
+          'aria-label': t('placeholder'),
+          onChange: (event) => setDraft(event.target.value),
+          onKeyDown,
+          onPaste: onComposerPaste,
+        }),
+        h('div', { className: 'dsc-composerBar' },
+          h('div', { className: 'dsc-tools' },
+            h('button', {
+              type: 'button',
+              className: 'dsc-tool',
+              'data-active': settings.webSearch ? 'true' : 'false',
+              'aria-pressed': settings.webSearch ? 'true' : 'false',
+              title: t('webSearch'),
+              onClick: toggleWebSearch,
+            }, h(GlobeIcon), h('span', { className: 'dsc-toolLabel' }, t('webSearch'))),
+            h('div', { className: 'dsc-toolWrap', ref: thinkWrapRef },
+              h('button', {
+                type: 'button',
+                className: 'dsc-tool',
+                'data-active': settings.thinking !== 'off' ? 'true' : 'false',
+                'aria-haspopup': 'menu',
+                'aria-expanded': thinkMenuOpen ? 'true' : 'false',
+                title: t('thinking'),
+                onClick: () => setThinkMenuOpen((value) => !value),
+              }, h(BrainIcon), h('span', { className: 'dsc-toolLabel' }, t('thinking') + ' · ' + thinkingLabel)),
+              thinkingMenu),
+            h('button', {
+              type: 'button',
+              className: 'dsc-tool',
+              'data-recording': recState === 'recording' ? 'true' : 'false',
+              'data-active': recState !== 'idle' ? 'true' : 'false',
+              title: recState === 'recording' ? t('listening') : t('voiceInput'),
+              disabled: recState === 'transcribing',
+              onClick: toggleRecording,
+            },
+              recState === 'recording' ? h('span', { className: 'dsc-recDot' }) : h(MicIcon),
+              recordingLabel ? h('span', { className: 'dsc-toolLabel' }, recordingLabel) : null),
+            h('button', {
+              type: 'button',
+              className: 'dsc-tool',
+              title: t('ocrHint'),
+              disabled: ocrBusy,
+              onClick: () => {
+                const node = fileRef.current;
+                if (node) node.click();
+              },
+            }, h(FileIcon), h('span', { className: 'dsc-toolLabel' }, ocrBusy ? t('ocrWorking') : t('ocr'))),
+            h('input', {
+              ref: fileRef,
+              type: 'file',
+              accept: '.pdf,.doc,.docx,.ppt,.pptx,image/*',
+              style: { display: 'none' },
+              onChange: (event) => {
+                const file = event.target.files && event.target.files[0];
+                if (file) runOcr(file);
+              },
+            })),
+          h('span', { className: 'dsc-composerHint' }, t('welcomeHint')),
+          busy
+            ? h('button', {
+              type: 'button',
+              className: 'dsc-send',
+              'data-stop': 'true',
+              title: t('stop'),
+              'aria-label': t('stop'),
+              onClick: stop,
+            }, h(StopIcon))
+            : h('button', {
+              type: 'button',
+              className: 'dsc-send',
+              title: t('send'),
+              'aria-label': t('send'),
+              disabled: !draft.trim(),
+              onClick: () => send(),
+            }, h(ArrowIcon))));
 
       const chatColumn = h('section', { className: 'dsc-main' },
         h('header', { className: 'dsc-chatHead' },
@@ -1660,36 +2654,7 @@ h3.dsc-mdHeading { font-size: 15px; }
             : h('div', { className: 'dsc-notice dsc-noticeRow', role: 'status' },
               h('span', null, t('missingKey')),
               h('button', { type: 'button', className: 'dsc-plainAction', onClick: () => setSettingsOpen(true) }, t('settings'))),
-          h('div', { className: 'dsc-composer' },
-            h('textarea', {
-              ref: inputRef,
-              className: 'dsc-input',
-              rows: 1,
-              value: draft,
-              placeholder: t('placeholder'),
-              'aria-label': t('placeholder'),
-              onChange: (event) => setDraft(event.target.value),
-              onKeyDown,
-            }),
-            h('div', { className: 'dsc-composerBar' },
-              h('span', { className: 'dsc-composerHint' }, t('welcomeHint')),
-              busy
-                ? h('button', {
-                  type: 'button',
-                  className: 'dsc-send',
-                  'data-stop': 'true',
-                  title: t('stop'),
-                  'aria-label': t('stop'),
-                  onClick: stop,
-                }, h(StopIcon))
-                : h('button', {
-                  type: 'button',
-                  className: 'dsc-send',
-                  title: t('send'),
-                  'aria-label': t('send'),
-                  disabled: !draft.trim(),
-                  onClick: () => send(),
-                }, h(ArrowIcon))))));
+          composer));
 
       return h('div', { className: 'dsc-root' },
         h('style', { dangerouslySetInnerHTML: { __html: CSS } }),
