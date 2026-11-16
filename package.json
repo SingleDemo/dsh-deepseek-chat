@@ -1,38 +1,62 @@
 {
-  "name": "@local/dsh-deepseek-chat",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "description": "A DeepSeek chat panel for the DeepSeek Harness Web GUI, with a left-sidebar entry.",
-  "license": "MIT",
-  "exports": {
-    ".": "./index.js",
-    "./client": "./client.js",
-    "./locale/*.json": "./locale/*.json",
-    "./icon": "./icon.svg"
-  },
-  "files": [
-    "index.js",
-    "client.js",
-    "cordis.patch.yml",
-    "locale/*.json",
-    "docs",
-    "icon.svg",
-    "README.md",
-    "LICENSE",
-    "NOTICE"
-  ],
-  "dsh": {
-    "bundle": {
-      "patch": "./cordis.patch.yml"
+    "name": "@local/dsh-deepseek-chat",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "A DeepSeek chat panel for the DeepSeek Harness Web GUI, with a left-sidebar entry.",
+    "license": "MIT",
+    "exports": {
+        ".": "./index.js",
+        "./client": "./client.js",
+        "./locale/*.json": "./locale/*.json",
+        "./icon": "./icon.svg"
     },
-    "client": {
-      "platform": "web",
-      "immediately": true,
-      "inject": [
-        "@deepseek-ai/dsh-client-ui-layout",
-        "@deepseek-ai/dsh-client-ui-sidebar"
-      ]
+    "files": [
+        "index.js",
+        "client.js",
+        "cordis.patch.yml",
+        "locale/*.json",
+        "docs",
+        "icon.svg",
+        "README.md",
+        "LICENSE",
+        "NOTICE"
+    ],
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        },
+        "client": {
+            "platform": "web",
+            "immediately": true,
+            "inject": [
+                "@deepseek-ai/dsh-client-ui-layout",
+                "@deepseek-ai/dsh-client-ui-sidebar"
+            ]
+        }
+    },
+    "devDependencies": {
+        "clsx": "2.1.1",
+        "esbuild": "^0.25.0",
+        "fflate": "0.8.3",
+        "idb": "8.0.3",
+        "katex": "0.16.22",
+        "mdast-util-find-and-replace": "3.0.2",
+        "mdast-util-from-markdown": "2.0.3",
+        "mdast-util-gfm": "3.1.0",
+        "mdast-util-math": "3.0.0",
+        "mermaid": "11.10.1",
+        "micromark-extension-gfm": "3.0.0",
+        "micromark-extension-llm-math": "3.1.0",
+        "prismjs": "1.30.0",
+        "zustand": "^4.4.7"
+    },
+    "scripts": {
+        "build": "node scripts/build-client.mjs",
+        "smoke": "node scripts/smoke.cjs"
+    },
+    "dependencies": {
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1"
     }
-  }
 }

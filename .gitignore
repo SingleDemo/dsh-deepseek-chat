@@ -1,4 +1,4 @@
 node_modules/
-pnpm-lock.yaml
-*.log
-.DS_Store
+build/
+src/generated/
+scripts/e2e/fixtures/fixtures/
