@@ -117,3 +117,14 @@ appear in the demo's General settings tab
    hand-written UI in `client.legacy.js`).
 3. Decide how the demo's own sider interacts with the Harness rail (both are
    visible today; the demo sider is part of the app and stays for parity).
+
+## Distribution and update checks
+
+- `package.json` is public (`dsh-deepseek-chat`, `engines.dsh`, repository,
+  homepage, keywords), so DSH installs it by name from the plugin index.
+- `scripts/publish-index.mjs` regenerates `market/index.json` and its icon for
+  the index URL; it records the release commit, which is what DSH installs.
+- `vendor/chat-demo/src/plugin/update-check.ts` compares the running version
+  (`__PLUGIN_VERSION__`, injected from `package.json` at build time) with the
+  index on jsDelivr, caches the answer for six hours, and never blocks the
+  panel; 设置 → 通用设置 renders it as 版本 + 检查更新.
