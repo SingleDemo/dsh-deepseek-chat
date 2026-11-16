@@ -11,7 +11,7 @@ export const zh = {
   sessionSaveFailed: '对话或附件尚未保存到本机，关闭页面可能丢失，请重试',
   sessionDeleteFailed: '删除对话失败，请重试',
   settings: '设置',
-  appName: 'API 使用 demo',
+  appName: 'AI Chat',
   deleteSessionModalContentTitle: '永久删除对话',
   deleteSessionWithFilesDescription: '删除后，该对话及其中上传的文件将不可恢复。确认删除吗？',
   cancel: '取消',
@@ -109,7 +109,12 @@ export const zh = {
   historyImportConfirm: '确认导入',
   historyImportConfirmTitle: '确认导入历史对话？',
   historyImportConfirmDescription: '上传的历史对话会覆盖当前所有对话记录，是否确认导入？',
-  historyImportDescription: '导入历史对话会覆盖全部本地对话和附件，支持 DeepSeek 导出的 ZIP 文件。',
+  historyImportDescription:
+    '支持 DeepSeek 导出的 ZIP 文件；默认合并到现有对话，取消勾选则覆盖全部本地对话和附件。',
+  historyImportMergeLabel: '合并到现有对话（保留当前对话，同 ID 覆盖）',
+  historyImportMergeDescription:
+    '导入的对话会与现有对话合并，当前对话不会被删除；同一个对话会被导入内容更新。',
+  historyImportConfirmMerge: '合并导入',
   historyImportedOne: '已导入 1 个对话',
   historyImported: '已导入 {count} 个对话',
   historyImportFailed:

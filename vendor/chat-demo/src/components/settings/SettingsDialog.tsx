@@ -373,13 +373,14 @@ const TtsVoiceSetting = () => {
   )
 }
 
-/** 覆盖导入的二次确认，叠在设置弹窗上 */
+/** 导入的二次确认，叠在设置弹窗上：默认合并，取消勾选才覆盖 */
 const ImportConfirm = ({
   historyImport,
 }: {
   historyImport: ReturnType<typeof useHistoryImport>
 }) => {
   const t = useTranslate()
+  const merge = historyImport.merge
   return (
     <Modal
       title={t('historyImportConfirmTitle')}
@@ -390,13 +391,29 @@ const ImportConfirm = ({
           <Button variant="outlined" size="m" autoFocus onClick={historyImport.cancel}>
             {t('cancel')}
           </Button>
-          <Button variant="dangerOutlined" size="m" onClick={() => void historyImport.confirm()}>
-            {t('historyImportConfirm')}
-          </Button>
+          {merge ? (
+            <Button variant="filled" size="m" onClick={() => void historyImport.confirm()}>
+              {t('historyImportConfirmMerge')}
+            </Button>
+          ) : (
+            <Button variant="dangerOutlined" size="m" onClick={() => void historyImport.confirm()}>
+              {t('historyImportConfirm')}
+            </Button>
+          )}
         </>
       }
     >
-      <div className={styles.importConfirmText}>{t('historyImportConfirmDescription')}</div>
+      <label className={styles.importMerge}>
+        <input
+          type="checkbox"
+          checked={merge}
+          onChange={(event) => historyImport.setMerge(event.target.checked)}
+        />
+        <span>{t('historyImportMergeLabel')}</span>
+      </label>
+      <div className={styles.importConfirmText}>
+        {merge ? t('historyImportMergeDescription') : t('historyImportConfirmDescription')}
+      </div>
     </Modal>
   )
 }
@@ -500,6 +517,8 @@ const useHistoryImport = () => {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<Status>(null)
+  // 插件改动：默认合并导入（保留现有对话），可切回覆盖。
+  const [merge, setMerge] = useState(true)
   const importing = useRef(false)
 
   const confirm = async () => {
@@ -511,7 +530,7 @@ const useHistoryImport = () => {
     setBusy(true)
     setStatus(null)
     try {
-      const count = await importHistory(file)
+      const count = await importHistory(file, merge)
       setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })
     } catch {
       setStatus({ key: 'historyImportFailed', error: true })
@@ -521,7 +540,16 @@ const useHistoryImport = () => {
     }
   }
 
-  return { file, busy, status, select: setFile, cancel: () => setFile(null), confirm }
+  return {
+    file,
+    busy,
+    status,
+    merge,
+    setMerge,
+    select: setFile,
+    cancel: () => setFile(null),
+    confirm,
+  }
 }
 
 /** 导入 = 覆盖：用选中文件替换本地全部会话与附件。 */

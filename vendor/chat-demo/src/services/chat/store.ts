@@ -440,6 +440,61 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
   }
 }
 
+/**
+ * 合并历史对话：先按导入流程写入暂存，成功后再并入现有会话（同 id 覆盖）。
+ * 本地已有会话保持不变，返回本次归档带来的会话数。
+ */
+export const mergeHistory = async (write: () => Promise<number>): Promise<number> => {
+  if (get().importingHistory) {
+    throw new Error('History import is already in progress')
+  }
+  set({ importingHistory: true })
+  try {
+    for (const controller of Object.values(get().streaming)) {
+      controller.abort()
+    }
+    await Promise.all(deletionTasks)
+    historyEpoch += 1
+    initTask = undefined
+    sessionLoads.clear()
+    await waitForIdle()
+    await db.clearStaging()
+    let imported: number
+    let summaries: SessionSummary[]
+    try {
+      imported = await write()
+      summaries = await db.mergeStaging()
+    } catch (error) {
+      await db.clearStaging().catch(db.reportStorageError('clear unfinished history import'))
+      throw error
+    }
+    const ids = new Set(summaries.map((summary) => summary.id))
+    const activeId = get().activeId
+    sessionAccess.clear()
+    unsavedSessions.clear()
+    pendingFiles.clear()
+    set({
+      ready: true,
+      initError: false,
+      sessions: sortSessions(summaries),
+      sessionCache: {},
+      sessionLoadErrors: {},
+      sessionSaveErrors: {},
+      activeId: activeId !== null && ids.has(activeId) ? activeId : null,
+    })
+    return imported
+  } finally {
+    set({ importingHistory: false })
+    retrySaveSessions()
+    const { activeId, ready } = get()
+    if (activeId !== null) {
+      void ensureSessionLoaded(activeId)
+    } else if (!ready) {
+      void initChat()
+    }
+  }
+}
+
 export const newChat = () => {
   if (!get().importingHistory) {
     set({ activeId: null })

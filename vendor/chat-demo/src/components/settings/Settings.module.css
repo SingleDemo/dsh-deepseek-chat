@@ -440,3 +440,19 @@
     max-width: 100%;
   }
 }
+/* 插件改动：导入确认里的「合并到现有对话」勾选行 */
+.importMerge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.importMerge input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--dsw-alias-brand-primary);
+}

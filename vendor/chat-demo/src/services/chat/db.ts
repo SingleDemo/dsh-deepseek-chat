@@ -244,6 +244,38 @@ export const commitStaging = async (): Promise<SessionSummary[]> => {
   return summaries
 }
 
+/**
+ * 合并导入：把暂存里的会话与图片并入现有记录，同 id 覆盖该条，其余保留。
+ * 返回合并后的完整会话摘要列表。
+ */
+export const mergeStaging = async (): Promise<SessionSummary[]> => {
+  const tx = (await getDB()).transaction(
+    ['sessions', 'sessionSummaries', 'files', 'sessionsStaging', 'filesStaging'],
+    'readwrite'
+  )
+  const merge = async (from: 'sessionsStaging' | 'filesStaging', to: 'sessions' | 'files') => {
+    try {
+      const target = tx.objectStore(to)
+      for (
+        let cursor = await tx.objectStore(from).openCursor();
+        cursor;
+        cursor = await cursor.continue()
+      ) {
+        await target.put(cursor.value)
+        if (to === 'sessions') {
+          await tx.objectStore('sessionSummaries').put(storedSummary(cursor.value as Session))
+        }
+      }
+      await tx.objectStore(from).clear()
+    } catch (error) {
+      abortTransaction(tx)
+      throw error
+    }
+  }
+  await Promise.all([merge('sessionsStaging', 'sessions'), merge('filesStaging', 'files'), tx.done])
+  return loadSessionSummaries()
+}
+
 /** 本地存储失败不打断对话，只在控制台留痕 */
 export const reportStorageError = (action: string) => (error: unknown) => {
   // eslint-disable-next-line no-console
