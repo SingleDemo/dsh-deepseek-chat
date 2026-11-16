@@ -4521,7 +4521,8 @@ h3.dsc-mdHeading { font-size: 15px; }
             const history = target.messages.slice(0, index);
             const botMessage = { id: uid(), role: 'assistant', blocks: [], status: 'streaming', error: '' };
             updateConversation(target.id, (item) => Object.assign({}, item, {
-              title: item.title || titleFrom(text),
+              // Editing the opening question renames the conversation too.
+              title: index <= 1 ? titleFrom(text) : (item.title || titleFrom(text)),
               updatedAt: Date.now(),
               messages: history.concat([question, botMessage]),
             }));
