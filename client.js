@@ -79,6 +79,7 @@ window.__ModuleLoader__.load({
       placeholder: 'Send a message…',
       send: 'Send',
       stop: 'Stop',
+      stopGenerating: 'Stop generating',
       regenerate: 'Regenerate',
       copy: 'Copy',
       copied: 'Copied',
@@ -100,6 +101,8 @@ window.__ModuleLoader__.load({
       changeApiKey: 'Change API key',
       topUp: 'Top up',
       retry: 'Retry',
+      previousVersion: 'Previous version',
+      nextVersion: 'Next version',
       caveat: 'AI-generated, for reference only',
       noticeNetwork: 'Network problem. Check your connection and try again.',
       noticeInvalidKey: 'The API key is invalid or was deleted. Use another key.',
@@ -144,8 +147,8 @@ window.__ModuleLoader__.load({
       stopReading: 'Stop reading',
       speakFailed: 'Could not synthesize speech',
       attach: 'Add files',
-      attachHint: 'Drop files here, paste, or pick them',
-      dropHere: 'Drop files to attach',
+      attachHint: 'Paste or pick them too — up to {count} files, {size} MB each',
+      dropHere: 'Drop files here to upload',
       uploadFailed: 'Upload failed',
       uploadRetry: 'Retry upload',
       uploading: 'Uploading…',
@@ -195,6 +198,7 @@ window.__ModuleLoader__.load({
       placeholder: '发消息…',
       send: '发送',
       stop: '停止',
+      stopGenerating: '停止生成',
       regenerate: '重新生成',
       copy: '复制',
       copied: '已复制',
@@ -216,6 +220,8 @@ window.__ModuleLoader__.load({
       changeApiKey: '更换 API Key',
       topUp: '前往充值',
       retry: '重试',
+      previousVersion: '上一个版本',
+      nextVersion: '下一个版本',
       caveat: '内容由 AI 生成，请仔细甄别',
       noticeNetwork: '网络异常，请检查网络后重试。',
       noticeInvalidKey: 'API Key 无效或已被删除，请更换后重试。',
@@ -260,8 +266,8 @@ window.__ModuleLoader__.load({
       stopReading: '停止朗读',
       speakFailed: '语音合成失败',
       attach: '添加附件',
-      attachHint: '拖入、粘贴或选择文件',
-      dropHere: '松开以添加附件',
+      attachHint: '也可以粘贴或选择文件：最多 {count} 个，每个 {size} MB',
+      dropHere: '拖动文件到此处即可上传',
       uploadFailed: '上传失败',
       uploadRetry: '重新上传',
       uploading: '上传中…',
@@ -480,10 +486,27 @@ window.__ModuleLoader__.load({
                 };
               }
               const blocks = Array.isArray(m.blocks) ? sanitizeBlocks(m.blocks) : legacyBlocks(m);
+              const versions = Array.isArray(m.versions)
+                ? m.versions.map((slot) => ({
+                  blocks: sanitizeBlocks(slot && slot.blocks),
+                  status: slot && (slot.status === 'done' || slot.status === 'stopped' || slot.status === 'error')
+                    ? slot.status
+                    : 'done',
+                  stopReason: slot && typeof slot.stopReason === 'string' ? slot.stopReason : '',
+                  error: slot && typeof slot.error === 'string' ? slot.error : '',
+                }))
+                : [{ blocks, status: 'done', stopReason: '', error: '' }];
+              const versionIndex = typeof m.versionIndex === 'number' && m.versionIndex < versions.length
+                ? m.versionIndex
+                : versions.length - 1;
+              const active = versions[versionIndex] || { blocks, status: 'done' };
               return {
                 id: typeof m.id === 'string' ? m.id : uid(),
                 role: 'assistant',
-                blocks,
+                versions,
+                versionIndex,
+                blocks: active.blocks,
+                stopReason: active.stopReason || '',
                 status: m.status === 'done' || m.status === 'stopped' || m.status === 'error'
                   ? m.status
                   : (m.stopped === true ? 'stopped' : (blocks.length ? 'done' : 'error')),
@@ -1201,6 +1224,31 @@ window.__ModuleLoader__.load({
       return blocks;
     }
 
+    /** Replace the active version slot of a reply, keeping the mirrors in sync. */
+    function patchVersion(message, patch) {
+      const versions = Array.isArray(message.versions) && message.versions.length
+        ? message.versions.slice()
+        : [{
+          blocks: message.blocks || [],
+          status: message.status || 'done',
+          stopReason: message.stopReason || '',
+          error: message.error || '',
+        }];
+      const index = typeof message.versionIndex === 'number' && message.versionIndex < versions.length
+        ? message.versionIndex
+        : versions.length - 1;
+      const slot = Object.assign({}, versions[index] || {}, patch);
+      versions[index] = slot;
+      return Object.assign({}, message, {
+        versions,
+        versionIndex: index,
+        blocks: slot.blocks || [],
+        status: slot.status || 'done',
+        stopReason: slot.stopReason || '',
+        error: slot.error || '',
+      });
+    }
+
     /** Stored attachment metadata for the request that is about to be sent. */
     function attachmentMeta(item) {
       return { id: item.id, name: item.name, size: item.size, isImage: item.isImage, fileId: item.fileId };
@@ -1807,6 +1855,29 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 }
 .dsc-noticeAction:hover { background: var(--dsw-alias-bg-layer-2); }
 
+.dsc-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.dsc-versionArrow {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dsc-versionArrow:hover:not(:disabled) { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsc-versionArrow:disabled { opacity: 0.35; cursor: default; }
 .dsc-botFoot {
   display: flex;
   gap: 10px;
@@ -1814,7 +1885,30 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   opacity: 0;
   transition: opacity 120ms ease;
 }
-.dsc-botRow:hover .dsc-botFoot { opacity: 1; }
+.dsc-botRow:hover .dsc-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.dsc-versionArrow {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.dsc-versionArrow:hover:not(:disabled) { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsc-versionArrow:disabled { opacity: 0.35; cursor: default; }
+.dsc-botFoot { opacity: 1; }
 
 .dsc-caveat {
   margin: 8px auto 2px;
@@ -3245,9 +3339,11 @@ h3.dsc-mdHeading { font-size: 15px; }
 
     /** One assistant message rendered from its streamed blocks. */
     function AssistantMessage(props) {
-      const { message, streaming, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t, onOpenSources, onOpenSettings } = props;
+      const { message, streaming, isLast, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t, onOpenSources, onOpenSettings, onSwitchVersion } = props;
       const [copied, setCopied] = useState(false);
       const [reasonOpen, setReasonOpen] = useState(true);
+      const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : [{ blocks: message.blocks || [] }];
+      const versionIndex = typeof message.versionIndex === 'number' ? message.versionIndex : versions.length - 1;
       const blocks = message.blocks || [];
       const answer = assistantText(message);
       const copy = useCallback(() => {
@@ -3321,7 +3417,27 @@ h3.dsc-mdHeading { font-size: 15px; }
             ? h('button', { type: 'button', className: 'dsc-noticeAction', onClick: onRegenerate }, t('retry'))
             : null) : null,
         hasBody && !streaming
-          ? h('div', { className: 'dsc-botFoot' },
+          ? h('div', { className: 'dsc-botFoot', 'data-last': isLast ? 'true' : 'false' },
+            versions.length > 1
+              ? h('span', { className: 'dsc-versions' },
+                h('button', {
+                  type: 'button',
+                  className: 'dsc-versionArrow',
+                  title: t('previousVersion'),
+                  'aria-label': t('previousVersion'),
+                  disabled: versionIndex <= 0,
+                  onClick: () => onSwitchVersion(-1),
+                }, '‹'),
+                h('span', { className: 'dsc-versionLabel' }, (versionIndex + 1) + ' / ' + versions.length),
+                h('button', {
+                  type: 'button',
+                  className: 'dsc-versionArrow',
+                  title: t('nextVersion'),
+                  'aria-label': t('nextVersion'),
+                  disabled: versionIndex >= versions.length - 1,
+                  onClick: () => onSwitchVersion(1),
+                }, '›'))
+              : null,
             h('button', {
               type: 'button',
               className: 'dsc-plainAction',
@@ -3732,10 +3848,10 @@ h3.dsc-mdHeading { font-size: 15px; }
               patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { blocks }));
             }
           }
-          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { blocks, status: 'done', stopReason }));
+          patchMessage(conversationId, messageId, (message) => patchVersion(message, { blocks, status: 'done', stopReason }));
         } catch (error) {
           const aborted = Boolean(error && error.name === 'AbortError');
-          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, {
+          patchMessage(conversationId, messageId, (message) => patchVersion(message, {
             blocks,
             status: aborted ? 'stopped' : 'error',
             error: aborted ? '' : (error && error.message ? error.message : String(error)),
@@ -3798,6 +3914,24 @@ h3.dsc-mdHeading { font-size: 15px; }
           if (node) node.focus();
         }, 0);
       }, [activeId, attachments, busy, draft, findConversation, runReply, settings.apiKey, settings.webSearch, t, updateConversation, uploading]);
+
+      /** Show the previous or next answer version of one turn. */
+      const switchVersion = useCallback((conversationId, messageId, direction) => {
+        patchMessage(conversationId, messageId, (message) => {
+          const versions = message.versions || [];
+          const index = typeof message.versionIndex === 'number' ? message.versionIndex : 0;
+          const next = index + direction;
+          if (next < 0 || next >= versions.length) return message;
+          const slot = versions[next];
+          return Object.assign({}, message, {
+            versionIndex: next,
+            blocks: slot.blocks || [],
+            status: slot.status || 'done',
+            stopReason: slot.stopReason || '',
+            error: slot.error || '',
+          });
+        });
+      }, [patchMessage]);
 
       const stop = useCallback(() => {
         if (abortRef.current) abortRef.current.abort();
@@ -4153,9 +4287,26 @@ h3.dsc-mdHeading { font-size: 15px; }
         const question = messages[lastIndex - 1];
         if (!question || question.role !== 'user') return;
         const request = requestMessages(messages.slice(0, lastIndex - 1), question, t('send') === 'Send');
-        patchMessage(conversation.id, last.id, (message) => Object.assign({}, message, {
-          blocks: [], status: 'streaming', error: '',
-        }));
+        patchMessage(conversation.id, last.id, (message) => {
+          const versions = Array.isArray(message.versions) && message.versions.length
+            ? message.versions.slice()
+            : [{
+              blocks: message.blocks || [],
+              status: message.status || 'done',
+              stopReason: message.stopReason || '',
+              error: message.error || '',
+            }];
+          versions.push({ blocks: [], status: 'streaming', stopReason: '', error: '' });
+          const index = versions.length - 1;
+          return Object.assign({}, message, {
+            versions,
+            versionIndex: index,
+            blocks: [],
+            status: 'streaming',
+            stopReason: '',
+            error: '',
+          });
+        });
         runReply(conversation.id, last.id, request, settings.webSearch);
       }, [busy, patchMessage, runReply, settings.webSearch]);
 
@@ -4287,11 +4438,13 @@ h3.dsc-mdHeading { font-size: 15px; }
               message,
               streaming: message.id === streamingId,
               canRegenerate,
+              isLast: canRegenerate,
               onRegenerate: () => regenerate(active),
               onSpeak: () => toggleSpeak(message),
               speaking: ttsId === message.id,
               speakPending: ttsPendingId === message.id,
               onOpenSources: () => setDrawerId((current) => (current === message.id ? null : message.id)),
+              onSwitchVersion: (direction) => switchVersion(active.id, message.id, direction),
               onOpenSettings: () => setSettingsOpen(true),
               t,
             }));
@@ -4380,7 +4533,7 @@ h3.dsc-mdHeading { font-size: 15px; }
             h('button', {
               type: 'button',
               className: 'dsc-tool',
-              title: t('attachHint'),
+              title: t('attachHint').replace('{count}', String(MAX_ATTACHMENTS)).replace('{size}', String(MAX_FILE_MB)),
               onClick: () => {
                 const node = fileRef.current;
                 if (node) node.click();
@@ -4405,8 +4558,8 @@ h3.dsc-mdHeading { font-size: 15px; }
               type: 'button',
               className: 'dsc-send',
               'data-stop': 'true',
-              title: t('stop'),
-              'aria-label': t('stop'),
+              title: t('stopGenerating'),
+              'aria-label': t('stopGenerating'),
               onClick: stop,
             }, h(StopIcon))
             : h('button', {
@@ -4501,7 +4654,7 @@ h3.dsc-mdHeading { font-size: 15px; }
             h('div', { className: 'dsc-dropCard' },
               h('span', { className: 'dsc-dropIcon' }, h(PaperclipIcon)),
               h('span', { className: 'dsc-dropTitle' }, t('dropHere')),
-              h('span', { className: 'dsc-dropHint' }, t('attachHint'))))
+              h('span', { className: 'dsc-dropHint' }, t('attachHint').replace('{count}', String(MAX_ATTACHMENTS)).replace('{size}', String(MAX_FILE_MB)))))
           : null,
         pendingDelete
           ? h(ConfirmDialog, {

@@ -267,7 +267,7 @@ function main() {
   check('offers web search', titles.indexOf('Web search') >= 0, titles.join('|').slice(0, 200));
   check('offers thinking strength', titles.indexOf('Thinking') >= 0);
   check('offers voice input', titles.indexOf('Voice input') >= 0);
-  check('offers attachments', titles.indexOf('Drop files here, paste, or pick them') >= 0, titles.join('|').slice(0, 300));
+  check('offers attachments', titles.some((title) => title.indexOf('Paste or pick them too') === 0), titles.join('|').slice(0, 300));
   check('shows the current thinking level', text.indexOf('High') >= 0, text.slice(0, 240));
   check('no UI string is missing from a dictionary', text.indexOf('MISSING:') < 0, text.slice(0, 200));
   check('renders the injected stylesheet', tree[0].children.some((child) => child.tag === 'style' && child.props.dangerouslySetInnerHTML));
