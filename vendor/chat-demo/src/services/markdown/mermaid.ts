@@ -1,16 +1,43 @@
 type Mermaid = typeof import('mermaid').default
 
+/**
+ * Local patch: mermaid is fetched on demand instead of being bundled, which
+ * keeps the plugin bundle several megabytes smaller. The UMD build registers
+ * `window.mermaid`, and the vendored app renders exactly as before.
+ */
+const MERMAID_CDN = 'https://cdn.jsdelivr.net/npm/mermaid@11.10.1/dist/mermaid.min.js'
+
 let mermaidPromise: Promise<Mermaid> | null = null
 let renderQueue = Promise.resolve()
 let nextId = 0
 
+const loadScript = () =>
+  new Promise<Mermaid>((resolve, reject) => {
+    const global = (window as unknown as { mermaid?: Mermaid }).mermaid
+    if (global) {
+      resolve(global)
+      return
+    }
+    const script = document.createElement('script')
+    script.src = MERMAID_CDN
+    script.async = true
+    script.onload = () => {
+      const loaded = (window as unknown as { mermaid?: Mermaid }).mermaid
+      if (loaded) {
+        resolve(loaded)
+      } else {
+        reject(new Error('mermaid did not register a global'))
+      }
+    }
+    script.onerror = () => reject(new Error('mermaid failed to load'))
+    document.head.appendChild(script)
+  })
+
 const loadMermaid = () => {
-  mermaidPromise ??= import('mermaid')
-    .then((module) => module.default)
-    .catch((error: unknown) => {
-      mermaidPromise = null
-      throw error
-    })
+  mermaidPromise ??= loadScript().catch((error: unknown) => {
+    mermaidPromise = null
+    throw error
+  })
   return mermaidPromise
 }
 
