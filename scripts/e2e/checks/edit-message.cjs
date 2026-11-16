@@ -49,6 +49,7 @@ module.exports = {
     const s = ctx.steps;
     const firstPrompt = '请用一句话介绍黄山。';
     const secondPrompt = '请用一句话介绍九华山。';
+    const newPromptHead = secondPrompt.slice(0, 8);
 
     // 1. One complete turn.
     await s.typeText('.dsc-input', firstPrompt);
@@ -118,6 +119,23 @@ module.exports = {
     ctx.assert(newReply && newReply !== oldReply, '新回复与旧回答不同');
     ctx.log('新回复: ' + newReply.replace(/\s+/g, ' ').slice(0, 80));
     ctx.assertEqual(await s.count('.dsc-turnUser'), 1, '编辑后仍只有 1 条用户消息');
+
+    // The edit branch also re-titles a conversation whose first message changed.
+    await s.waitFor(() => {
+      const row = document.querySelector('.dsc-railList .dsc-rowTitle');
+      const title = document.querySelector('.dsc-chatTitle');
+      const rowText = row ? (row.innerText || '') : '';
+      const chatText = title ? (title.innerText || '') : '';
+      return rowText.indexOf('九华山') >= 0 && chatText.indexOf('九华山') >= 0;
+    }, { timeout: 10000, label: '编辑后 rail 会话行与 .dsc-chatTitle 都更新为新问题' });
+
+    const titles = await s.eval(() => ({
+      rail: (document.querySelector('.dsc-railList .dsc-rowTitle') || {}).innerText || '',
+      chat: (document.querySelector('.dsc-chatTitle') || {}).innerText || '',
+    }));
+    ctx.assertIncludes(titles.rail, secondPrompt.slice(0, 8), 'rail 会话行标题含新问题前几个字');
+    ctx.assertIncludes(titles.chat, newPromptHead, '顶部 .dsc-chatTitle 含新问题前几个字');
+    ctx.log('rail 标题: ' + titles.rail + ' · 顶部标题: ' + titles.chat);
     await s.shot('edit-message');
   },
 };

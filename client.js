@@ -5085,6 +5085,9 @@ h3.dsc-mdHeading { font-size: 15px; }
         if (abortRef.current) abortRef.current.abort();
         setConversations([]);
         setActiveId(null);
+        setDrawerId(null);
+        setEditing(null);
+        setNotice('');
         writeJson(CONVERSATIONS_KEY, []);
         setSettingsOpen(false);
       }, []);
