@@ -173,7 +173,10 @@ function main() {
     console,
     setTimeout,
     clearTimeout,
+    TextEncoder,
     TextDecoder,
+    Blob: typeof Blob === 'undefined' ? class {} : Blob,
+    URL: typeof URL === 'undefined' ? { createObjectURL: () => '', revokeObjectURL: () => {} } : URL,
     fetch: async () => { throw new Error('network is not available in the smoke test'); },
   };
   context.globalThis = context;
