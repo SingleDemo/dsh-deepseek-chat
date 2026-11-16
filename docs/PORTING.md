@@ -33,15 +33,32 @@ straight from the repository and must not need a build step to run.
   to `.dsc-demo-host`; the demo's palettes therefore cannot repaint the host.
 - `__API_ORIGIN__` is defined at build time (default `https://api.deepseek.com`).
 
+## Local patches to the vendored sources
+
+Kept deliberately small, and listed here so an upstream sync can reapply them:
+
+| File | Patch |
+| --- | --- |
+| `src/plugin/portal.tsx` | New file: portals dialogs into the panel instead of `document.body` |
+| `components/base/Modal.tsx` | Renders through `PanelPortal` |
+| `components/base/Modal.module.css` | `.overlay` is `position: absolute`, so it dims the panel only |
+
+## Done
+
+- Dialog overlays stay inside the panel: the overlay rect now equals the panel
+  rect, and the Harness sidebar stays untouched behind it.
+- The panel follows the Harness theme when the demo preference is `system`
+  (`html[data-ds-theme-source]`, watched with a `MutationObserver`), so the
+  palette switches with DSH instead of the OS.
+- Scoped tokens use a doubled class so they beat the host's `html`-level rules.
+
 ## Open work
 
-1. Modals, menus, tooltips and hover cards portal to `document.body`, so they
-   cover the whole Harness window; they should portal into the panel host.
-2. The panel-local theme bridge follows the demo's own preference; decide
-   whether the panel should follow the host theme instead.
-3. Re-add the plugin extras on top of the vendored app: thinking-strength
+1. Re-add the plugin extras on top of the vendored app: thinking-strength
    levels, custom API base URL, and the Harness-side notices.
-4. The bundle is ~8 MB because katex, mermaid and prism are inlined; move
+2. The bundle is ~8 MB because katex, mermaid and prism are inlined; move
    mermaid back to a lazy CDN load and check the KaTeX font subset.
-5. Rewrite the e2e checks for the new DOM (they currently target the retired
+3. Rewrite the e2e checks for the new DOM (they currently target the retired
    hand-written UI in `client.legacy.js`).
+4. Decide how the demo's own sider interacts with the Harness rail (both are
+   visible today; the demo sider is part of the app and stays for parity).

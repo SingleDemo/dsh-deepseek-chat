@@ -58,14 +58,17 @@ const common = {
  */
 function scopeCss(css) {
   const HOST = '.dsc-demo-host'
+  // Doubling the class beats the host's html-level token rules (0,1,1), so the
+  // panel keeps the demo palette without touching the rest of the page.
+  const ROOT = `${HOST}${HOST}`
   return css
-    .replace(/(^|[\s,{}])html(\s*[{,])/g, `$1${HOST}$2`)
-    .replace(/(^|[\s,{}])body(\s*[{,.])/g, `$1${HOST}$2`)
-    .replace(/(^|[\s,{}]):root(\s*[{,])/g, `$1${HOST}$2`)
-    .replace(/body\.dark/g, `${HOST}.dark`)
-    .replace(/body\.light/g, `${HOST}.light`)
-    .replace(/body\[data-ds-dark-theme\]/g, `${HOST}[data-ds-dark-theme]`)
-    .replace(/body\.change-theme/g, `${HOST}.change-theme`)
+    .replace(/(^|[\s,{}])html(\s*[{,])/g, `$1${ROOT}$2`)
+    .replace(/(^|[\s,{}])body(\s*[{,.])/g, `$1${ROOT}$2`)
+    .replace(/(^|[\s,{}]):root(\s*[{,])/g, `$1${ROOT}$2`)
+    .replace(/body\.dark/g, `${ROOT}.dark`)
+    .replace(/body\.light/g, `${ROOT}.light`)
+    .replace(/body\[data-ds-dark-theme\]/g, `${ROOT}[data-ds-dark-theme]`)
+    .replace(/body\.change-theme/g, `${ROOT}.change-theme`)
 }
 
 const entryBundle = path.join(tmp, 'entry.js')

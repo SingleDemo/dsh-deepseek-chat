@@ -1,6 +1,7 @@
 .overlay {
   --overlay-opacity: 0.36;
-  position: fixed;
+  /* Local patch: the overlay covers the plugin panel, not the whole page. */
+  position: absolute;
   inset: 0;
   z-index: 1000;
   display: flex;

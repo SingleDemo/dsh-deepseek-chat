@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useEffect, useId, useRef, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { PanelPortal } from '../../plugin/portal.js'
 import { useTranslate } from '../../i18n/index.js'
 import { IconCloseOutline16 } from './icons.js'
 import { IconButton } from './IconButton.js'
@@ -48,7 +48,8 @@ export const Modal = ({
     }
   }, [])
 
-  return createPortal(
+  return (
+    <PanelPortal>
     <div
       className={styles.overlay}
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
@@ -76,7 +77,7 @@ export const Modal = ({
         {children ? <div className={clsx(styles.main, mainClassName)}>{children}</div> : null}
         {footer ? <div className={styles.footer}>{footer}</div> : null}
       </div>
-    </div>,
-    document.body
+    </div>
+    </PanelPortal>
   )
 }
