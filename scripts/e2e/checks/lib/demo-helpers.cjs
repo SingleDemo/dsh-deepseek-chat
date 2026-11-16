@@ -397,30 +397,94 @@ async function exportHistoryZip(ctx, dir) {
   return { file, bytes: fs.readFileSync(file) };
 }
 
-/** Import one ZIP via 设置 → 数据管理 → 上传 (hidden file input) + confirm. */
-async function importHistoryZip(ctx, file) {
+/** Read the import-confirm dialog state (merge checkbox defaults to checked). */
+async function readImportDialogState(ctx) {
+  return await ctx.steps.eval((host) => {
+    const dialogs = Array.from(document.querySelectorAll(host + ' [role="dialog"]'));
+    const dialog = dialogs.find((node) => /确认导入历史对话|Import these conversations/.test(node.innerText || ''));
+    if (!dialog) return null;
+    const checkbox = dialog.querySelector('input[type="checkbox"]');
+    const buttons = Array.from(dialog.querySelectorAll('button')).map((button) => ({
+      text: (button.innerText || '').trim(),
+      classes: Array.from(button.classList),
+    }));
+    const main = buttons.find((button) => !/取消|Cancel/.test(button.text)) || null;
+    return {
+      text: (dialog.innerText || '').replace(/\s+/g, ' ').trim(),
+      checkbox: checkbox ? { checked: checkbox.checked } : null,
+      buttonText: main ? main.text : '',
+      buttonClasses: main ? main.classes : [],
+    };
+  }, [HOST]);
+}
+
+/**
+ * Pick a ZIP in 数据管理's hidden import input and wait for the confirm dialog.
+ * The selector is the zip-specific input (the composer also has a file input).
+ */
+async function selectImportFile(ctx, file) {
   await openSettingsTab(ctx, '数据管理');
   await ctx.page.send('DOM.enable');
   const doc = await ctx.page.send('DOM.getDocument', { depth: 1 });
   const found = await ctx.page.send('DOM.querySelector', {
     nodeId: doc.root.nodeId,
-    selector: 'input[type="file"][accept*="zip"]',
+    selector: 'input[type="file"][accept*=".zip"]',
   });
   if (!found || !found.nodeId) throw new Error('找不到导入 ZIP 的隐藏 file input');
   await ctx.page.send('DOM.setFileInputFiles', { files: [file], nodeId: found.nodeId });
+  await ctx.steps.waitFor((host) => Array.from(document.querySelectorAll(host + ' [role="dialog"]'))
+    .some((node) => /确认导入历史对话|Import these conversations/.test(node.innerText || '')),
+  { timeout: 15000, label: '导入确认弹窗出现' }, [HOST]);
+  const state = await readImportDialogState(ctx);
+  if (!state) throw new Error('导入确认弹窗读取失败');
+  return state;
+}
 
-  await ctx.steps.waitFor((host) => {
+/**
+ * Confirm the import dialog in merge (default) or overwrite mode, then wait for
+ * the 已导入 N 个对话 status and close settings. Returns what the dialog showed
+ * right before confirming.
+ */
+async function confirmImport(ctx, merge) {
+  const wanted = merge !== false; // product default: merge
+  let state = await readImportDialogState(ctx);
+  if (!state) throw new Error('导入确认弹窗不存在');
+  if (state.checkbox && state.checkbox.checked !== wanted) {
+    await ctx.steps.eval((host) => {
+      const dialog = Array.from(document.querySelectorAll(host + ' [role="dialog"]'))
+        .find((node) => /确认导入历史对话|Import these conversations/.test(node.innerText || ''));
+      const checkbox = dialog && dialog.querySelector('input[type="checkbox"]');
+      if (checkbox) checkbox.click();
+    }, [HOST]);
+    await ctx.steps.wait(150);
+    state = await readImportDialogState(ctx);
+  }
+  await clickByText(ctx, wanted ? /^合并导入$|^Merge$|^导入$/ : /^确认导入$|^Import$/, HOST);
+  await ctx.steps.waitFor((host) => Array.from(document.querySelectorAll(host + ' [role="dialog"]'))
+    .some((node) => /已导入|Imported/.test(node.innerText || '')),
+  { timeout: 60000, label: '导入完成提示' }, [HOST]);
+  const status = await ctx.steps.eval((host) => {
     const dialogs = Array.from(document.querySelectorAll(host + ' [role="dialog"]'));
-    return dialogs.some((node) => /确认导入历史对话|Import these conversations/.test(node.innerText || ''));
-  }, { timeout: 10000, label: '导入确认弹窗出现' }, [HOST]);
-
-  await clickByText(ctx, /^确认导入$|^Import$/, HOST);
-  // The settings cell shows 已导入 N 个对话; the modal closes itself.
-  await ctx.steps.waitFor((host) => {
-    const dialogs = Array.from(document.querySelectorAll(host + ' [role="dialog"]'));
-    return dialogs.some((node) => /已导入|Imported/.test(node.innerText || ''));
-  }, { timeout: 30000, label: '导入完成提示' }, [HOST]);
+    const match = dialogs.map((node) => node.innerText || '').join('\n').match(/已导入[^\n]*/);
+    return match ? match[0].trim() : null;
+  }, [HOST]);
   await closeSettings(ctx);
+  return {
+    merge: wanted,
+    buttonText: state.buttonText,
+    checkboxChecked: state.checkbox ? state.checkbox.checked : null,
+    status,
+  };
+}
+
+/**
+ * Import one ZIP via 设置 → 数据管理 → 上传 + confirm. Defaults to merge (the
+ * product default); pass { merge: false } to overwrite all existing sessions.
+ */
+async function importHistoryZip(ctx, file, options) {
+  const merge = !options || options.merge !== false;
+  await selectImportFile(ctx, file);
+  return await confirmImport(ctx, merge);
 }
 
 /** 设置 → 数据管理 → 删除 → confirm: wipe every conversation. */
@@ -603,6 +667,9 @@ module.exports = {
   allowDownloads,
   waitForDownload,
   exportHistoryZip,
+  readImportDialogState,
+  selectImportFile,
+  confirmImport,
   importHistoryZip,
   deleteAllSessions,
   validateBackup,

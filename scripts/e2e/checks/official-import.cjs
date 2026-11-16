@@ -43,7 +43,7 @@ module.exports = {
       { timeout: timeout || 20000, label: 'sider 出现会话「' + needle + '」' }, [h.HOST, needle]);
     };
     const restoreSnapshot = async () => {
-      await h.importHistoryZip(ctx, snapshot);
+      await h.importHistoryZip(ctx, snapshot, { merge: false });
       await waitSiderTitle('E2E-USER-一');
       const sessions = await h.readSessions(ctx);
       if (sessions.length !== 2) throw new Error('快照恢复后会话数不是 2（' + sessions.length + '）');
@@ -62,7 +62,7 @@ module.exports = {
       ctx.log('用户数据快照: ' + path.basename(snapshot) + ' (' + exported.bytes.length + 'B)');
 
       // 1. Basic official fixture: title / question / answer / attachment chip.
-      await h.importHistoryZip(ctx, h.fixture('official-backup.zip'));
+      await h.importHistoryZip(ctx, h.fixture('official-backup.zip'), { merge: false });
       await waitSiderTitle('SSE 是什么');
       await h.openSession(ctx, 'SSE 是什么');
       await s.waitFor((host) => (document.querySelector(host + ' .ds-assistant-message-main-content') || {}).innerText, {
@@ -81,7 +81,7 @@ module.exports = {
       await s.shot('official-import');
 
       // 2. DEFLATE + data descriptor variant.
-      await h.importHistoryZip(ctx, h.fixture('official-backup-deflate.zip'));
+      await h.importHistoryZip(ctx, h.fixture('official-backup-deflate.zip'), { merge: false });
       await waitSiderTitle('SSE 是什么', 15000);
       await h.openSession(ctx, 'SSE 是什么');
       await s.waitFor((host) => ((document.querySelector(host + ' .ds-assistant-message-main-content') || {}).innerText || '').indexOf('text/event-stream') >= 0, {
@@ -91,7 +91,7 @@ module.exports = {
       await s.shot('official-import-deflate');
 
       // 3. All 13 fragment types + a branch (USER with two ASSISTANT siblings).
-      await h.importHistoryZip(ctx, h.fixture('official-backup-fragments.zip'));
+      await h.importHistoryZip(ctx, h.fixture('official-backup-fragments.zip'), { merge: false });
       await waitSiderTitle('新对话');
       await h.openSession(ctx, '新对话');
       await s.waitFor(() => document.querySelectorAll('[aria-label="消息版本"]').length >= 1, {

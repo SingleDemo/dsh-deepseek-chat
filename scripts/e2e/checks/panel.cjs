@@ -39,6 +39,8 @@ module.exports = {
     ctx.log('面板尺寸 ' + host.width + 'x' + host.height + '，主题 ' + (host.dark ? 'dark' : 'light'));
 
     const text = await s.text(h.HOST);
+    ctx.assertIncludes(text, 'AI Chat', '面板标题是「AI Chat」');
+    ctx.assert(!/API 使用 demo/.test(text), '旧标题「API 使用 demo」已不存在');
     ctx.assertIncludes(text, '今天有什么可以帮到你？', '欢迎语文案');
     ctx.assertIncludes(text, '开启新对话', 'sider 有新会话按钮');
     ctx.assertIncludes(text, '设置', 'sider 底部有设置按钮');

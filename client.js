@@ -39276,6 +39276,7 @@ window.__ModuleLoader__.load({
             fail("backupIncomplete");
           }
           await updateStagingFileTypes(stored);
+          return imported.size;
         };
       }
     });
