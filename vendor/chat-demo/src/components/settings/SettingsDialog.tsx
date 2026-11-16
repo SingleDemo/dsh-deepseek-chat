@@ -37,6 +37,7 @@ import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { accountToken } from '../../plugin/account-auth.js'
+import { PLUGIN_VERSION, checkForUpdate, type UpdateState } from '../../plugin/update-check.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
@@ -106,6 +107,7 @@ const SettingsContent = () => {
               <ThinkingEffortSetting />
               <ApiBaseUrlSetting />
               <LocationSetting />
+              <VersionSetting />
             </>
           ) : (
             <>
@@ -371,6 +373,53 @@ const TtsVoiceSetting = () => {
           ]}
           onChange={setTtsVoice}
         />
+      }
+    />
+  )
+}
+
+/** 插件改动：显示当前版本并在需要时检查已发布的索引 */
+const VersionSetting = () => {
+  const t = useTranslate()
+  const [state, setState] = useState<UpdateState | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    void checkForUpdate().then((result) => {
+      if (!cancelled) setState(result)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  const check = async () => {
+    setBusy(true)
+    const result = await checkForUpdate(true)
+    setState(result)
+    setBusy(false)
+  }
+  const description = !state
+    ? t('versionChecking')
+    : state.state === 'latest'
+      ? t('versionLatest')
+      : state.state === 'available'
+        ? t('versionAvailable').replace('{latest}', state.latest)
+        : t('versionUnknown')
+  return (
+    <SettingCell
+      label={t('settingsVersion') + ' ' + PLUGIN_VERSION}
+      description={description}
+      status={null}
+      action={
+        <Button
+          variant="outlined"
+          size="m"
+          className={styles.cellButton}
+          disabled={busy}
+          onClick={() => void check()}
+        >
+          {t('versionCheck')}
+        </Button>
       }
     />
   )

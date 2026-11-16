@@ -188,4 +188,10 @@ export const zh = {
   authStatusChecking: '正在检查登录状态…',
   authStatusSignedOut: '未登录：请在 Harness 的账号设置里登录 DeepSeek',
   authStatusUnavailable: '当前环境没有账号服务，请改用 API Key',
+  settingsVersion: '版本',
+  versionCheck: '检查更新',
+  versionChecking: '正在检查…',
+  versionLatest: '已是最新版本',
+  versionAvailable: '有新版本 {latest}，可在插件里更新',
+  versionUnknown: '暂时无法检查更新（网络或索引不可达）',
 } as const

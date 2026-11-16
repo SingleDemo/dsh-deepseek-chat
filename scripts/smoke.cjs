@@ -188,7 +188,8 @@ function main() {
   vm.runInNewContext(source, context, { filename: 'client.js' });
   const module = runtime.window.captured;
   check('registers itself with the module loader', Boolean(module), 'no module captured');
-  check('declares the bundle id', module && module.id === '@local/dsh-deepseek-chat', module && module.id);
+  const packageName = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).name;
+  check('declares the bundle id', Boolean(module) && module.id === packageName, module && module.id);
   check('exposes a factory', Boolean(module && typeof module.factory === 'function'));
 
   // The real React is installed for the harness: the vendored demo app calls memo,

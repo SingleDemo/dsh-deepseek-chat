@@ -196,4 +196,10 @@ export const en = {
   authStatusChecking: 'Checking sign-in state…',
   authStatusSignedOut: 'Signed out: sign in to DeepSeek in the Harness account settings',
   authStatusUnavailable: 'No account service here; use an API key instead',
+  settingsVersion: 'Version',
+  versionCheck: 'Check for updates',
+  versionChecking: 'Checking…',
+  versionLatest: 'Up to date',
+  versionAvailable: 'Version {latest} is available',
+  versionUnknown: 'Could not check for updates (network or index unreachable)',
 } satisfies Record<keyof typeof zh, string>

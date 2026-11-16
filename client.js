@@ -1,6 +1,6 @@
 /* Built by scripts/build-client.mjs from vendor/chat-demo — do not edit. */
 window.__ModuleLoader__.load({
-  id: "@local/dsh-deepseek-chat",
+  id: "dsh-deepseek-chat",
   factory(require) {
     var module = { exports: {} };
     var exports = module.exports;
@@ -1084,7 +1084,13 @@ window.__ModuleLoader__.load({
           authStatusSignedIn: "Signed in \u2014 no API key needed",
           authStatusChecking: "Checking sign-in state\u2026",
           authStatusSignedOut: "Signed out: sign in to DeepSeek in the Harness account settings",
-          authStatusUnavailable: "No account service here; use an API key instead"
+          authStatusUnavailable: "No account service here; use an API key instead",
+          settingsVersion: "Version",
+          versionCheck: "Check for updates",
+          versionChecking: "Checking\u2026",
+          versionLatest: "Up to date",
+          versionAvailable: "Version {latest} is available",
+          versionUnknown: "Could not check for updates (network or index unreachable)"
         };
       }
     });
@@ -1278,7 +1284,13 @@ window.__ModuleLoader__.load({
           authStatusSignedIn: "\u5DF2\u767B\u5F55\uFF0C\u65E0\u9700\u586B\u5199 API Key",
           authStatusChecking: "\u6B63\u5728\u68C0\u67E5\u767B\u5F55\u72B6\u6001\u2026",
           authStatusSignedOut: "\u672A\u767B\u5F55\uFF1A\u8BF7\u5728 Harness \u7684\u8D26\u53F7\u8BBE\u7F6E\u91CC\u767B\u5F55 DeepSeek",
-          authStatusUnavailable: "\u5F53\u524D\u73AF\u5883\u6CA1\u6709\u8D26\u53F7\u670D\u52A1\uFF0C\u8BF7\u6539\u7528 API Key"
+          authStatusUnavailable: "\u5F53\u524D\u73AF\u5883\u6CA1\u6709\u8D26\u53F7\u670D\u52A1\uFF0C\u8BF7\u6539\u7528 API Key",
+          settingsVersion: "\u7248\u672C",
+          versionCheck: "\u68C0\u67E5\u66F4\u65B0",
+          versionChecking: "\u6B63\u5728\u68C0\u67E5\u2026",
+          versionLatest: "\u5DF2\u662F\u6700\u65B0\u7248\u672C",
+          versionAvailable: "\u6709\u65B0\u7248\u672C {latest}\uFF0C\u53EF\u5728\u63D2\u4EF6\u91CC\u66F4\u65B0",
+          versionUnknown: "\u6682\u65F6\u65E0\u6CD5\u68C0\u67E5\u66F4\u65B0\uFF08\u7F51\u7EDC\u6216\u7D22\u5F15\u4E0D\u53EF\u8FBE\uFF09"
         };
       }
     });
@@ -39782,8 +39794,90 @@ window.__ModuleLoader__.load({
       }
     });
     
+    // vendor/chat-demo/src/plugin/update-check.ts
+    var INDEX_URL, CACHE_KEY, CACHE_TTL_MS, PLUGIN_VERSION, compareVersions, latestFromIndex, readCache, checkForUpdate;
+    var init_update_check = __esm({
+      "vendor/chat-demo/src/plugin/update-check.ts"() {
+        init_react_shim();
+        INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
+        CACHE_KEY = "chat-demo:update-check";
+        CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
+        PLUGIN_VERSION = "1.1.0";
+        compareVersions = (a2, b2) => {
+          const split = (value) => {
+            const [core, pre] = value.split("-");
+            return { core: core.split(".").map((part) => Number.parseInt(part, 10) || 0), pre: pre ? pre.split(".") : [] };
+          };
+          const left = split(a2);
+          const right = split(b2);
+          for (let i = 0; i < 3; i += 1) {
+            const diff = (left.core[i] ?? 0) - (right.core[i] ?? 0);
+            if (diff !== 0) return diff > 0 ? 1 : -1;
+          }
+          if (!left.pre.length && !right.pre.length) return 0;
+          if (!left.pre.length) return 1;
+          if (!right.pre.length) return -1;
+          const length = Math.max(left.pre.length, right.pre.length);
+          for (let i = 0; i < length; i += 1) {
+            const l = left.pre[i];
+            const r3 = right.pre[i];
+            if (l === void 0) return -1;
+            if (r3 === void 0) return 1;
+            const ln = Number(l);
+            const rn = Number(r3);
+            const numeric = !Number.isNaN(ln) && !Number.isNaN(rn);
+            if (numeric && ln !== rn) return ln > rn ? 1 : -1;
+            if (!numeric && l !== r3) return l > r3 ? 1 : -1;
+          }
+          return 0;
+        };
+        latestFromIndex = (body) => {
+          const plugin = (body.plugins ?? []).find((entry) => entry && entry.name === "dsh-deepseek-chat");
+          if (!plugin || !Array.isArray(plugin.versions)) return null;
+          let latest = null;
+          for (const entry of plugin.versions) {
+            const version2 = entry && entry.version;
+            if (typeof version2 !== "string") continue;
+            if (latest === null || compareVersions(version2, latest) > 0) latest = version2;
+          }
+          return latest;
+        };
+        readCache = () => {
+          try {
+            const parsed = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+            if (parsed && typeof parsed.at === "number" && typeof parsed.latest === "string") return parsed;
+          } catch {
+          }
+          return null;
+        };
+        checkForUpdate = async (force = false) => {
+          const cached2 = readCache();
+          if (!force && cached2 && Date.now() - cached2.at < CACHE_TTL_MS) {
+            return compareVersions(cached2.latest, PLUGIN_VERSION) > 0 ? { state: "available", current: PLUGIN_VERSION, latest: cached2.latest } : { state: "latest", current: PLUGIN_VERSION };
+          }
+          try {
+            const response = await fetch(INDEX_URL, { cache: "no-store", headers: { accept: "application/json" } });
+            if (!response.ok) return { state: "unknown", current: PLUGIN_VERSION, reason: `HTTP ${response.status}` };
+            const latest = latestFromIndex(await response.json());
+            if (!latest) return { state: "unknown", current: PLUGIN_VERSION, reason: "not-in-index" };
+            try {
+              localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), latest }));
+            } catch {
+            }
+            return compareVersions(latest, PLUGIN_VERSION) > 0 ? { state: "available", current: PLUGIN_VERSION, latest } : { state: "latest", current: PLUGIN_VERSION };
+          } catch (error) {
+            return {
+              state: "unknown",
+              current: PLUGIN_VERSION,
+              reason: error instanceof Error ? error.message : String(error)
+            };
+          }
+        };
+      }
+    });
+    
     // vendor/chat-demo/src/components/settings/SettingsDialog.tsx
-    var import_react34, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ApiBaseUrlSetting, TtsVoiceSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
+    var import_react34, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ApiBaseUrlSetting, TtsVoiceSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
     var init_SettingsDialog = __esm({
       "vendor/chat-demo/src/components/settings/SettingsDialog.tsx"() {
         init_react_shim();
@@ -39802,6 +39896,7 @@ window.__ModuleLoader__.load({
         init_toastState();
         init_ApiKeyField();
         init_account_auth();
+        init_update_check();
         init_settingsDialogState();
         init_Settings();
         SettingsDialog = () => {
@@ -39851,7 +39946,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t("deleteAllSessions"),
@@ -40087,6 +40182,46 @@ window.__ModuleLoader__.load({
                   ],
                   onChange: setTtsVoice
                 }
+              )
+            }
+          );
+        };
+        VersionSetting = () => {
+          const t = useTranslate();
+          const [state, setState] = (0, import_react34.useState)(null);
+          const [busy, setBusy] = (0, import_react34.useState)(false);
+          (0, import_react34.useEffect)(() => {
+            let cancelled = false;
+            void checkForUpdate().then((result) => {
+              if (!cancelled) setState(result);
+            });
+            return () => {
+              cancelled = true;
+            };
+          }, []);
+          const check = async () => {
+            setBusy(true);
+            const result = await checkForUpdate(true);
+            setState(result);
+            setBusy(false);
+          };
+          const description = !state ? t("versionChecking") : state.state === "latest" ? t("versionLatest") : state.state === "available" ? t("versionAvailable").replace("{latest}", state.latest) : t("versionUnknown");
+          return /* @__PURE__ */ React.createElement(
+            SettingCell,
+            {
+              label: t("settingsVersion") + " " + PLUGIN_VERSION,
+              description,
+              status: null,
+              action: /* @__PURE__ */ React.createElement(
+                Button,
+                {
+                  variant: "outlined",
+                  size: "m",
+                  className: Settings_default.cellButton,
+                  disabled: busy,
+                  onClick: () => void check()
+                },
+                t("versionCheck")
               )
             }
           );

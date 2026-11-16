@@ -45,6 +45,8 @@ const common = {
   },
   define: {
     'process.env.NODE_ENV': '"production"',
+    // The panel shows its own version and compares it with the published index.
+    __PLUGIN_VERSION__: JSON.stringify(pkg.version),
     // The demo injects its API origin at build time; keep the public default.
     __API_ORIGIN__: JSON.stringify(process.env.DSH_CHAT_API_ORIGIN || 'https://api.deepseek.com'),
   },

@@ -1,62 +1,79 @@
 {
-    "name": "@local/dsh-deepseek-chat",
-    "version": "1.0.0",
-    "private": true,
-    "type": "module",
-    "description": "A DeepSeek chat panel for the DeepSeek Harness Web GUI, with a left-sidebar entry.",
-    "license": "MIT",
-    "exports": {
-        ".": "./index.js",
-        "./client": "./client.js",
-        "./locale/*.json": "./locale/*.json",
-        "./icon": "./icon.svg"
-    },
-    "files": [
-        "index.js",
-        "client.js",
-        "cordis.patch.yml",
-        "locale/*.json",
-        "docs",
-        "icon.svg",
-        "README.md",
-        "LICENSE",
-        "NOTICE"
-    ],
-    "dsh": {
-        "bundle": {
-            "patch": "./cordis.patch.yml"
-        },
-        "client": {
-            "platform": "web",
-            "immediately": true,
-            "inject": [
-                "@deepseek-ai/dsh-client-ui-layout",
-                "@deepseek-ai/dsh-client-ui-sidebar"
-            ]
-        }
-    },
-    "devDependencies": {
-        "clsx": "2.1.1",
-        "esbuild": "^0.25.0",
-        "fflate": "0.8.3",
-        "idb": "8.0.3",
-        "katex": "0.16.22",
-        "mdast-util-find-and-replace": "3.0.2",
-        "mdast-util-from-markdown": "2.0.3",
-        "mdast-util-gfm": "3.1.0",
-        "mdast-util-math": "3.0.0",
-        "mermaid": "11.10.1",
-        "micromark-extension-gfm": "3.0.0",
-        "micromark-extension-llm-math": "3.1.0",
-        "prismjs": "1.30.0",
-        "zustand": "^4.4.7"
-    },
-    "scripts": {
-        "build": "node scripts/build-client.mjs",
-        "smoke": "node scripts/smoke.cjs"
-    },
-    "dependencies": {
-        "react": "^18.3.1",
-        "react-dom": "^18.3.1"
-    }
+    "name":  "dsh-deepseek-chat",
+    "version":  "1.1.0",
+    "type":  "module",
+    "license":  "MIT",
+    "exports":  {
+                    ".":  "./index.js",
+                    "./client":  "./client.js",
+                    "./locale/*.json":  "./locale/*.json",
+                    "./icon":  "./icon.svg"
+                },
+    "files":  [
+                  "index.js",
+                  "client.js",
+                  "cordis.patch.yml",
+                  "locale/*.json",
+                  "docs",
+                  "icon.svg",
+                  "README.md",
+                  "LICENSE",
+                  "NOTICE"
+              ],
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           },
+                "client":  {
+                               "platform":  "web",
+                               "immediately":  true,
+                               "inject":  [
+                                              "@deepseek-ai/dsh-client-ui-layout",
+                                              "@deepseek-ai/dsh-client-ui-sidebar"
+                                          ]
+                           }
+            },
+    "devDependencies":  {
+                            "clsx":  "2.1.1",
+                            "esbuild":  "^0.25.0",
+                            "fflate":  "0.8.3",
+                            "idb":  "8.0.3",
+                            "katex":  "0.16.22",
+                            "mdast-util-find-and-replace":  "3.0.2",
+                            "mdast-util-from-markdown":  "2.0.3",
+                            "mdast-util-gfm":  "3.1.0",
+                            "mdast-util-math":  "3.0.0",
+                            "mermaid":  "11.10.1",
+                            "micromark-extension-gfm":  "3.0.0",
+                            "micromark-extension-llm-math":  "3.1.0",
+                            "prismjs":  "1.30.0",
+                            "zustand":  "^4.4.7"
+                        },
+    "scripts":  {
+                    "build":  "node scripts/build-client.mjs",
+                    "smoke":  "node scripts/smoke.cjs"
+                },
+    "dependencies":  {
+                         "react":  "^18.3.1",
+                         "react-dom":  "^18.3.1"
+                     },
+    "description":  "A DeepSeek chat panel for the DeepSeek Harness Web GUI: the upstream chat-demo UI as a sidebar plugin, with account login, branch editing, and official history ZIP import/export.",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/SingleDemo/dsh-deepseek-chat.git"
+                   },
+    "homepage":  "https://github.com/SingleDemo/dsh-deepseek-chat#readme",
+    "author":  "SingleDemo",
+    "keywords":  [
+                     "dsh-plugin",
+                     "deepseek",
+                     "chat",
+                     "deepseek-harness"
+                 ],
+    "engines":  {
+                    "dsh":  "\u003e=0.2.2-rc.3 \u003c0.3.0"
+                },
+    "publishConfig":  {
+                          "access":  "public"
+                      }
 }
