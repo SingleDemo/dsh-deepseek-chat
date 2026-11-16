@@ -186,20 +186,35 @@ The Settings dialog has four sections:
 
 ## Install
 
-From the DSH **Plugins** page choose **Add plugin** and install this directory,
-or let an agent install it:
+The plugin is published through a plugin index, so a Harness install can add it
+without cloning anything:
 
-```
-plugin_manager install_bundle target="<absolute path to this folder>"
+1. Open **Plugins → Discover** and switch on **Custom plugin indexes** under
+   *Experimental plugins*.
+2. **Add index source** and paste
+   `https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json`
+3. Install **AI Chat** from its card and confirm the row under **Installed**.
+
+From the command line, install the indexed release or this directory:
+
+```sh
+dsh plugin --profile <profile> add git+https://github.com/SingleDemo/dsh-deepseek-chat.git#6d5589783de94c011dc465271d2687e69cf00801
+dsh plugin --profile <profile> add /path/to/dsh-deepseek-chat
 ```
 
-The bundle is a plain package: no build step, no dependencies, no Host code.
-`client.js` is a browser artifact that registers into `sidebar.panellist` and
-`main`; `index.js` is an empty Host row that keeps the bundle valid.
+The package ships the built `client.js` (the demo UI, bundled by
+`scripts/build-client.mjs`), so installing needs no build step. The Host half
+(`index.js`) only serves the account-token route described above.
+
+**Updates:** 设置 → 通用设置 shows the running version and a **检查更新** button
+that reads the same index; a new release also appears in **Discover** as
+*Update available*.
 
 ## Development
 
-- `node --check client.js` — syntax check the browser half.
+- `npm install` — once, for the build toolchain.
+- `npm run build` — bundles the vendored demo and the plugin shell into `client.js`.
+- `node --check client.js` — syntax check the built browser half.
 - `scripts/smoke.cjs` — loads the module with a stubbed runtime, runs `apply`,
   and asserts both slot registrations plus every locale key used by the UI.
 - `scripts/e2e/` — a CDP harness that drives the real DSH Web GUI, one check
