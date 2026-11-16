@@ -84,16 +84,44 @@ window.__ModuleLoader__.load({
       copied: 'Copied',
       rename: 'Rename',
       delete: 'Delete',
-      thinkingLive: 'Thinking…',
-      thinkingDone: 'Thought process',
       assistantName: 'DeepSeek',
-      error: 'Request failed',
+      thinkingLabel: 'Reasoning',
+      thinkingDuration: 'Thought for {count} s',
+      thinkingStopped: 'Stopped',
+      thinkingNow: 'Thinking',
+      searchingDeep: 'Searching the web',
+      browsingPages: 'Browsing pages',
+      readingLink: 'Reading',
+      readPagesCount: 'Read {count} pages',
+      searchUnavailable: 'Web search unavailable',
+      browseFailed: 'Could not open pages',
+      browsedPages: 'Browsed {count} pages',
+      viewAll: 'View all',
+      changeApiKey: 'Change API key',
+      topUp: 'Top up',
+      retry: 'Retry',
+      caveat: 'AI-generated, for reference only',
+      noticeNetwork: 'Network problem. Check your connection and try again.',
+      noticeInvalidKey: 'The API key is invalid or was deleted. Use another key.',
+      noticeBalance: 'Your balance is too low. Top up and try again.',
+      noticeRateLimited: 'Too many requests. Wait a moment and retry.',
+      noticeBusy: 'The service is busy. Try again later.',
+      noticeFileExpired: 'An attachment expired on the service. Send it again.',
+      refused: 'Sorry, I cannot answer that. Let us talk about something else.',      error: 'Request failed',
       clearAll: 'Delete all conversations',
       clearConfirm: 'Delete every conversation stored in this browser?',
       stopped: 'Stopped',
       modelHint: 'Use a model id your key can access.',
       settingsSaved: 'Settings saved',
-      untitled: 'Untitled',
+      untitled: 'New chat',
+      groupToday: 'Today',
+      groupYesterday: 'Yesterday',
+      groupWeek: 'Previous 7 days',
+      groupMonth: 'Previous 30 days',
+      groupOlder: 'Older',
+      deleteTitle: 'Delete conversation for good',
+      deleteBody: 'The conversation and everything in it will be gone. Delete it?',
+      deleteConfirm: 'Delete',
       backToConversation: 'Back to the conversation',
       webSearch: 'Web search',
       thinking: 'Thinking',
@@ -102,7 +130,6 @@ window.__ModuleLoader__.load({
       thinkHigh: 'High',
       thinkMax: 'Max',
       searching: 'Searching…',
-      sourceCount: '{count} pages',
       searchingFor: 'Searching “{query}”',
       searchResult: 'Search results',
       searchNoResult: 'No results for this search',
@@ -173,16 +200,44 @@ window.__ModuleLoader__.load({
       copied: '已复制',
       rename: '重命名',
       delete: '删除',
-      thinkingLive: '思考中…',
-      thinkingDone: '思考过程',
       assistantName: 'DeepSeek',
-      error: '请求失败',
+      thinkingLabel: '深度思考',
+      thinkingDuration: '已思考（用时 {count} 秒）',
+      thinkingStopped: '已停止',
+      thinkingNow: '正在思考',
+      searchingDeep: '正在搜索',
+      browsingPages: '正在浏览网页',
+      readingLink: '正在阅读',
+      readPagesCount: '已阅读 {count} 个网页',
+      searchUnavailable: '联网搜索暂不可用',
+      browseFailed: '浏览页面失败',
+      browsedPages: '浏览 {count} 个页面',
+      viewAll: '查看全部',
+      changeApiKey: '更换 API Key',
+      topUp: '前往充值',
+      retry: '重试',
+      caveat: '内容由 AI 生成，请仔细甄别',
+      noticeNetwork: '网络异常，请检查网络后重试。',
+      noticeInvalidKey: 'API Key 无效或已被删除，请更换后重试。',
+      noticeBalance: '账户余额不足，请充值后重试。',
+      noticeRateLimited: '请求过于频繁，请稍后再试。',
+      noticeBusy: '服务器繁忙，请稍后再试。',
+      noticeFileExpired: '附件已在服务端失效，请重新发送。',
+      refused: '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。',      error: '请求失败',
       clearAll: '删除全部对话',
       clearConfirm: '要删除本浏览器中保存的全部对话吗？',
       stopped: '已停止',
       modelHint: '请填写你的 Key 可以访问的模型 id。',
       settingsSaved: '设置已保存',
-      untitled: '未命名',
+      untitled: '新对话',
+      groupToday: '今天',
+      groupYesterday: '昨天',
+      groupWeek: '7 天内',
+      groupMonth: '30 天内',
+      groupOlder: '更早',
+      deleteTitle: '永久删除对话',
+      deleteBody: '删除后，该对话及其中的消息将不可恢复。确认删除吗？',
+      deleteConfirm: '删除',
       backToConversation: '返回对话',
       webSearch: '联网',
       thinking: '思考',
@@ -191,7 +246,6 @@ window.__ModuleLoader__.load({
       thinkHigh: '高',
       thinkMax: '最高',
       searching: '正在搜索…',
-      sourceCount: '{count} 个网页',
       searchingFor: '正在搜索「{query}」',
       searchResult: '搜索结果',
       searchNoResult: '这次搜索没有结果',
@@ -321,7 +375,12 @@ window.__ModuleLoader__.load({
               : [],
           });
         } else if (item.type === 'thinking') {
-          out.push({ type: 'thinking', text: typeof item.text === 'string' ? item.text : '' });
+          out.push({
+            type: 'thinking',
+            text: typeof item.text === 'string' ? item.text : '',
+            startedAt: typeof item.startedAt === 'number' ? item.startedAt : 0,
+            endedAt: typeof item.endedAt === 'number' ? item.endedAt : 0,
+          });
         } else if (item.type === 'tool') {
           out.push({
             type: 'tool',
@@ -339,6 +398,8 @@ window.__ModuleLoader__.load({
                   url: s.url,
                   snippet: typeof s.snippet === 'string' ? s.snippet : '',
                   site: typeof s.site === 'string' ? s.site : '',
+                  icon: typeof s.icon === 'string' ? s.icon : '',
+                  date: typeof s.date === 'string' ? s.date : '',
                 }))
               : [],
           });
@@ -365,6 +426,31 @@ window.__ModuleLoader__.load({
         });
       }
       return out;
+    }
+
+    /** Group conversations the way the demo's rail does: today, yesterday, 7 days, 30 days. */
+    function groupConversations(list, t) {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      const day = 86400000;
+      const groups = [
+        { key: 'today', label: t('groupToday'), items: [] },
+        { key: 'yesterday', label: t('groupYesterday'), items: [] },
+        { key: 'week', label: t('groupWeek'), items: [] },
+        { key: 'month', label: t('groupMonth'), items: [] },
+        { key: 'older', label: t('groupOlder'), items: [] },
+      ];
+      const sorted = sortConversations(list);
+      for (let i = 0; i < sorted.length; i += 1) {
+        const time = sorted[i].updatedAt || sorted[i].createdAt;
+        let index = 4;
+        if (time >= startOfToday) index = 0;
+        else if (time >= startOfToday - day) index = 1;
+        else if (time >= startOfToday - 7 * day) index = 2;
+        else if (time >= startOfToday - 30 * day) index = 3;
+        groups[index].items.push(sorted[i]);
+      }
+      return groups.filter((group) => group.items.length);
     }
 
     /** Stored conversations, dropping anything that cannot render. */
@@ -472,8 +558,18 @@ window.__ModuleLoader__.load({
             } catch (error) {
               /* keep the raw value */
             }
+            const cited = sources && sources[url];
             nodes.push(h('sup', { key, className: 'dsc-cites' },
-              h('a', { href: url, target: '_blank', rel: 'noreferrer noopener', title: url }, label.replace(/^c/, ''))));
+              h('a', { href: url, target: '_blank', rel: 'noreferrer noopener', title: url }, label.replace(/^c/, '')),
+              cited
+                ? h('span', { className: 'dsc-citeCard', 'aria-hidden': true },
+                  h('span', { className: 'dsc-citeCardMeta' },
+                    h(SiteDot, { name: cited.site || hostOf(cited.url) }),
+                    h('span', null, cited.site || hostOf(cited.url)),
+                    cited.date ? h('span', { className: 'dsc-citeCardDate' }, formatDate(cited.date)) : null),
+                  h('span', { className: 'dsc-citeCardTitle' }, cited.title || cited.url),
+                  cited.snippet ? h('span', { className: 'dsc-citeCardSnippet' }, clipSnippet(cited.snippet)) : null)
+                : null));
           } else {
             nodes.push(h('a', { key, href, target: '_blank', rel: 'noreferrer noopener' }, label || href));
           }
@@ -1007,7 +1103,12 @@ window.__ModuleLoader__.load({
         if (content.type === 'text') {
           block = { type: 'text', text: typeof content.text === 'string' ? content.text : '', citations: [] };
         } else if (content.type === 'thinking') {
-          block = { type: 'thinking', text: typeof content.thinking === 'string' ? content.thinking : '' };
+          block = {
+            type: 'thinking',
+            text: typeof content.thinking === 'string' ? content.thinking : '',
+            startedAt: Date.now(),
+            endedAt: 0,
+          };
         } else if (content.type === 'server_tool_use') {
           const input = content.input || {};
           const queries = Array.isArray(input.queries)
@@ -1030,6 +1131,8 @@ window.__ModuleLoader__.load({
               url: item.url,
               snippet: typeof item.snippet === 'string' ? item.snippet : '',
               site: typeof item.site_name === 'string' ? item.site_name : '',
+              icon: typeof item.site_icon === 'string' ? item.site_icon : '',
+              date: typeof item.page_age === 'string' ? item.page_age : '',
             })),
           };
         } else if (content.type === 'web_fetch_tool_result') {
@@ -1042,6 +1145,20 @@ window.__ModuleLoader__.load({
         }
         const next = blocks.concat([block]);
         indexes.set(event.index, next.length - 1);
+        return next;
+      }
+      if (event.type === 'content_block_stop') {
+        const position = indexes.get(event.index);
+        if (position === undefined) return blocks;
+        const block = blocks[position];
+        if (!block || block.type !== 'thinking' || block.endedAt) return blocks;
+        const next = blocks.slice();
+        next[position] = {
+          type: 'thinking',
+          text: block.text,
+          startedAt: block.startedAt,
+          endedAt: Date.now(),
+        };
         return next;
       }
       if (event.type === 'content_block_delta') {
@@ -1071,7 +1188,12 @@ window.__ModuleLoader__.load({
         }
         if (block.type === 'thinking' && delta.type === 'thinking_delta') {
           const next = blocks.slice();
-          next[position] = { type: 'thinking', text: block.text + delta.thinking };
+          next[position] = {
+            type: 'thinking',
+            text: block.text + delta.thinking,
+            startedAt: block.startedAt,
+            endedAt: block.endedAt,
+          };
           return next;
         }
         return blocks;
@@ -1111,12 +1233,27 @@ window.__ModuleLoader__.load({
         .join('');
     }
 
+    /** The current date and context the service expects, as a `latest_reminder` row. */
+    function latestReminder(english) {
+      const now = new Date();
+      const pad = (value) => (value < 10 ? '0' + value : String(value));
+      const date = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
+      let weekday = '';
+      try {
+        weekday = new Intl.DateTimeFormat(english ? 'en-US' : 'zh-CN', { weekday: 'long' }).format(now);
+      } catch (error) {
+        weekday = '';
+      }
+      // Five fields are required: date, weekday, location (may be empty), platform, language.
+      return [date, weekday, '', 'Web', english ? 'English' : '中文'].join(',');
+    }
+
     /**
      * Build the request history the way the demo does: complete rounds only,
      * then the question being asked now.
      */
-    function requestMessages(history, question) {
-      const messages = [];
+    function requestMessages(history, question, english) {
+      const messages = [{ role: 'latest_reminder', content: latestReminder(english) }];
       for (let i = 0; i < history.length; i += 1) {
         const user = history[i];
         const reply = history[i + 1];
@@ -1133,7 +1270,6 @@ window.__ModuleLoader__.load({
       messages.push(userMessageParam(question));
       return messages;
     }
-
     /**
      * Transcribe one recording through `POST /v1/tools/asr`.
      * @param options.settings - resolved API settings.
@@ -1521,20 +1657,26 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 
 .dsc-chev { transition: transform 140ms ease; }
 .dsc-chevOpen { transform: rotate(90deg); }
-.dsc-reasoning { margin: 2px 0 10px; }
-.dsc-reasoningToggle {
-  display: inline-flex;
+.dsc-reasonArea { margin: 2px 0 10px; }
+.dsc-reasonHead {
+  display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 3px 10px 3px 8px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 999px;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+  border: 0;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
+  font-size: 12.5px;
+  text-align: left;
   cursor: pointer;
+  transition: color 120ms ease;
 }
-.dsc-reasoningToggle:hover { color: var(--dsw-alias-label-primary); }
+.dsc-reasonHead:hover { color: var(--dsw-alias-label-primary); }
+.dsc-reasonHead svg:first-child { color: var(--dsw-alias-brand-primary); flex: none; }
+.dsc-reasonHead[data-live='true'] svg:first-child { animation: dsc-pulse 1.6s ease-in-out infinite; }
+.dsc-reasonTitle { margin-right: 2px; }
+.dsc-reasonSteps { padding: 2px 0 2px 2px; }
 .dsc-liveDot {
   width: 6px;
   height: 6px;
@@ -1544,16 +1686,200 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
   animation: dsc-pulse 1.2s ease-in-out infinite;
 }
 @keyframes dsc-pulse { 50% { opacity: 0.3; } }
-.dsc-reasoningBody {
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-left: 2px solid var(--dsw-alias-border-l2);
+
+.dsc-stepRow {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  padding: 3px 0 3px 0;
+}
+.dsc-stepRow::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 14px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--dsw-alias-border-l2);
+}
+.dsc-stepRow[data-last='true']::before { display: none; }
+.dsc-stepDot {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  flex: none;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-bg-base);
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l2);
+}
+.dsc-stepBody { min-width: 0; flex: 1; padding-bottom: 3px; }
+.dsc-stepText {
   color: var(--dsw-alias-label-secondary);
   font-size: 12.5px;
+  line-height: 1.65;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.dsc-stepAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 6px 2px 2px;
+  margin-left: -2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  text-align: left;
+}
+.dsc-stepAction[data-clickable='true'] { cursor: pointer; }
+.dsc-stepAction[data-clickable='true']:hover {
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+.dsc-stepQuery {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsc-stepSites { display: inline-flex; align-items: center; margin-left: 2px; }
+.dsc-stepSites .dsc-siteImg,
+.dsc-stepSites .dsc-siteDot { margin-left: 3px; }
+.dsc-stepOpen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+}
+.dsc-stepPage {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-secondary);
+  text-decoration: underline dotted var(--dsw-alias-border-l2);
+  text-underline-offset: 3px;
+}
+.dsc-stepPage:hover { color: var(--dsw-alias-label-primary); }
+.dsc-stepChip {
+  padding: 1px 7px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.dsc-stepChip:hover { color: var(--dsw-alias-label-primary); }
 
+.dsc-siteImg { border-radius: 50%; object-fit: cover; flex: none; }
+
+.dsc-noticeLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.dsc-noticeLine[data-error='true'] { color: var(--dsw-alias-label-primary); }
+.dsc-noticeLine[data-error='true'] > svg { color: var(--dsw-alias-state-warn-primary); flex: none; }
+.dsc-noticeAction {
+  padding: 1px 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.dsc-noticeAction:hover { background: var(--dsw-alias-bg-layer-2); }
+
+.dsc-botFoot {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.dsc-botRow:hover .dsc-botFoot { opacity: 1; }
+
+.dsc-caveat {
+  margin: 8px auto 2px;
+  color: var(--dsw-alias-state-idle-primary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.dsc-cites { position: relative; display: inline-flex; gap: 3px; margin-left: 3px; vertical-align: super; }
+.dsc-cites a {
+  display: inline-block;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--dsw-alias-label-secondary) 16%, transparent);
+  color: var(--dsw-alias-label-primary);
+  font-size: 10px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.dsc-cites a:hover { background: var(--dsw-alias-brand-primary); color: var(--dsw-alias-bg-base); }
+.dsc-citeCard {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: -8px;
+  z-index: 30;
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  width: 260px;
+  padding: 10px 11px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-overlay);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24);
+  text-align: left;
+  vertical-align: baseline;
+}
+.dsc-cites:hover .dsc-citeCard { display: flex; }
+.dsc-citeCardMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+.dsc-citeCardDate { color: var(--dsw-alias-state-idle-primary); }
+.dsc-citeCardTitle {
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.dsc-citeCardSnippet {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .dsc-composerWrap { position: relative; padding: 8px 24px 18px; }
 .dsc-jump {
   position: absolute;
@@ -2144,6 +2470,24 @@ h3.dsc-mdHeading { font-size: 15px; }
   box-shadow: 0 10px 32px rgba(0, 0, 0, 0.26);
 }
 .dsc-scrim { position: absolute; inset: 0; z-index: 19; background: rgba(0, 0, 0, 0.3); }
+.dsc-dialogBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
+}
+.dsc-railGroup { margin-bottom: 6px; }
+.dsc-railGroupLabel {
+  padding: 8px 8px 4px;
+  color: var(--dsw-alias-state-idle-primary);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
 
 @media (hover: none) {
   .dsc-rowActions { display: flex; }
@@ -2348,22 +2692,270 @@ h3.dsc-mdHeading { font-size: 15px; }
       return matches;
     }
 
-    /** One collapsible block holding the model's reasoning, when the model returns it. */
-    function Reasoning(props) {
-      const { text, live, t } = props;
-      const [open, setOpen] = useState(false);
-      if (!text) return null;
-      return h('div', { className: 'dsc-reasoning' },
+    /** Thinking glyph used by the timeline header. */
+    function ThinkIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M8 2.4a3.9 3.9 0 0 0-2.3 7.1v1.6h4.6V9.5A3.9 3.9 0 0 0 8 2.4Z' }),
+        h('path', { d: 'M6.3 13.7h3.4' }));
+    }
+
+    /** Rounded search glyph for a search step. */
+    function SearchSiteIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', 'aria-hidden': true },
+        h('circle', { cx: 7, cy: 7, r: 4.2 }),
+        h('path', { d: 'm10.2 10.2 3 3' }));
+    }
+
+    /** Rounded page glyph for a read step. */
+    function BrowseSiteIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.35, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+        h('path', { d: 'M3.2 2.8h6.2l3.4 3.4v7H3.2Z' }),
+        h('path', { d: 'M9.2 2.8v3.6h3.6' }));
+    }
+
+    /** Where the demo sends people when the balance runs out. */
+    const TOP_UP_URL = 'https://platform.deepseek.com/top_up';
+
+    /**
+     * Map a failed reply onto the notice the demo shows: a short reason plus,
+     * when the user can fix it, the action that fixes it.
+     */
+    function describeReply(message, t) {
+      if (message.status === 'error' && message.error) {
+        const raw = String(message.error);
+        const match = /HTTP (\d{3})/.exec(raw);
+        const code = match ? Number(match[1]) : 0;
+        if (!code && /failed to fetch|network|load failed|networkerror/i.test(raw)) {
+          return { text: t('noticeNetwork'), error: true, retry: true };
+        }
+        if (code === 400 && /file_ids do not exist|file data not found|invalid file_id/i.test(raw)) {
+          return { text: t('noticeFileExpired'), error: true };
+        }
+        if (code === 401) return { text: t('noticeInvalidKey'), error: true, action: 'apiKey' };
+        if (code === 402) return { text: t('noticeBalance'), error: true, action: 'topUp' };
+        if (code === 429) return { text: t('noticeRateLimited'), error: true, retry: true };
+        if (code >= 500) return { text: t('noticeBusy'), error: true, retry: true };
+        return { text: raw, error: true, retry: true };
+      }
+      if (message.stopReason === 'refusal') return { text: t('refused') };
+      return null;
+    }
+
+    /** Warning glyph for a reply notice. */
+    function WarningIcon() {
+      return h('svg', { viewBox: '0 0 16 16', width: 13, height: 13, fill: 'none', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round', 'aria-hidden': true },
+        h('path', { d: 'M8 2.8 14 13H2L8 2.8Z' }),
+        h('path', { d: 'M8 6.6v3.1M8 11.4v.6' }));
+    }
+
+    /** Seconds spent thinking across the reply's thinking blocks, or null when unknown. */
+    function thinkingSeconds(blocks, now) {
+      let total = 0;
+      let known = false;
+      for (let i = 0; i < (blocks || []).length; i += 1) {
+        const block = blocks[i];
+        if (!block || block.type !== 'thinking' || !block.startedAt) continue;
+        known = true;
+        total += Math.max(0, ((block.endedAt || now) - block.startedAt) / 1000);
+      }
+      if (!known) return null;
+      return Math.max(1, Math.round(total));
+    }
+
+    /**
+     * Fold the reply blocks into the timeline the demo draws: reasoning text,
+     * search steps with their results, and the pages the model opened.
+     */
+    function buildSteps(blocks) {
+      const steps = [];
+      for (let i = 0; i < (blocks || []).length; i += 1) {
+        const block = blocks[i];
+        if (block.type === 'thinking') {
+          const previous = steps[steps.length - 1];
+          if (previous && previous.type === 'thinking') {
+            previous.text += block.text;
+            previous.active = !block.endedAt;
+          } else {
+            steps.push({ type: 'thinking', text: block.text, active: !block.endedAt });
+          }
+          continue;
+        }
+        if (block.type === 'tool') {
+          if (block.url) {
+            const previous = steps[steps.length - 1];
+            if (previous && previous.type === 'open') {
+              if (previous.urls.indexOf(block.url) < 0) previous.urls.push(block.url);
+            } else {
+              steps.push({ type: 'open', urls: [block.url], status: 'wip' });
+            }
+            continue;
+          }
+          if (block.queries && block.queries.length) {
+            steps.push({ type: 'search', key: i, queries: block.queries.slice(), results: [], status: 'wip' });
+            continue;
+          }
+          continue;
+        }
+        if (block.type === 'sources') {
+          let target = null;
+          for (let j = steps.length - 1; j >= 0; j -= 1) {
+            if (steps[j].type === 'search' && steps[j].status === 'wip') {
+              target = steps[j];
+              break;
+            }
+          }
+          if (!target) {
+            target = { type: 'search', key: i, queries: [], results: [], status: 'wip' };
+            steps.push(target);
+          }
+          for (let j = 0; j < block.items.length; j += 1) {
+            const item = block.items[j];
+            if (target.results.some((result) => result.url === item.url)) continue;
+            target.results.push(item);
+          }
+          target.status = 'done';
+          continue;
+        }
+        if (block.type === 'fetch') {
+          const urls = block.urls || [];
+          if (!urls.length) continue;
+          const previous = steps[steps.length - 1];
+          const target = previous && previous.type === 'open'
+            ? previous
+            : { type: 'open', urls: [], status: 'done' };
+          if (target !== previous) steps.push(target);
+          for (let j = 0; j < urls.length; j += 1) {
+            if (target.urls.indexOf(urls[j]) < 0) target.urls.push(urls[j]);
+          }
+          target.status = 'done';
+        }
+      }
+      return steps;
+    }
+
+    /** Header text of the timeline, mirroring the demo's wording. */
+    function reasoningTitle(props) {
+      const { steps, streaming, hasAnswer, seconds, t } = props;
+      if (hasAnswer) {
+        if (seconds === null) return t('thinkingLabel');
+        return t('thinkingDuration').replace('{count}', String(seconds));
+      }
+      if (!streaming) return t('thinkingStopped');
+      const last = steps[steps.length - 1];
+      if (last && last.type === 'search' && last.status === 'wip') return t('searchingDeep');
+      if (last && last.type === 'open' && last.status === 'wip') return t('browsingPages');
+      return t('thinkingNow');
+    }
+
+    /** A result site as its favicon, falling back to the tinted initial. */
+    function SiteLogo(props) {
+      const { source, size } = props;
+      const name = (source && source.site) || hostOf(source ? source.url : '');
+      const icon = source && source.icon;
+      const [failed, setFailed] = useState(false);
+      const box = { width: size || 16, height: size || 16 };
+      if (icon && !failed) {
+        return h('img', {
+          className: 'dsc-siteImg',
+          style: box,
+          src: icon,
+          alt: '',
+          loading: 'lazy',
+          referrerPolicy: 'no-referrer',
+          onError: () => setFailed(true),
+        });
+      }
+      return h(SiteDot, { name });
+    }
+
+    /** One row of the timeline: a dot, a connector line, and its content. */
+    function StepRow(props) {
+      const { children, last } = props;
+      return h('div', { className: 'dsc-stepRow', 'data-last': last ? 'true' : 'false' },
+        h('span', { className: 'dsc-stepDot' }),
+        h('div', { className: 'dsc-stepBody' }, children));
+    }
+
+    /**
+     * The reply's reasoning timeline: collapsible header plus one row per
+     * reasoning block, search, and opened page.
+     */
+    function ReasoningArea(props) {
+      const { blocks, streaming, hasAnswer, steps, now, t, onOpenSources, open, onToggle } = props;
+      if (!steps.length && !streaming) return null;
+      const seconds = thinkingSeconds(blocks, now);
+      const title = reasoningTitle({ steps, streaming, hasAnswer, seconds, t });
+      const body = [];
+      for (let i = 0; i < steps.length; i += 1) {
+        const step = steps[i];
+        const last = i === steps.length - 1;
+        if (step.type === 'thinking') {
+          body.push(h(StepRow, { key: 't' + i, last },
+            h('div', { className: 'dsc-stepText' }, step.text)));
+          continue;
+        }
+        if (step.type === 'search') {
+          const wip = step.status === 'wip' && streaming;
+          const failed = step.status === 'wip' && !streaming;
+          const count = step.results.length;
+          const query = step.queries.length ? step.queries[0] : '';
+          body.push(h(StepRow, { key: 's' + i, last },
+            h('button', {
+              type: 'button',
+              className: 'dsc-stepAction',
+              'data-clickable': count ? 'true' : 'false',
+              onClick: count ? onOpenSources : undefined,
+            },
+              h(SearchSiteIcon),
+              wip
+                ? h('span', { className: 'dsc-stepQuery' }, t('searchingFor').replace('{query}', query))
+                : failed
+                  ? h('span', null, t('searchUnavailable'))
+                  : h('span', null, t('readPagesCount').replace('{count}', String(count))),
+              count
+                ? h('span', { className: 'dsc-stepSites' }, step.results.slice(0, 4).map((source) => h(SiteLogo, {
+                  key: source.url,
+                  source,
+                  size: 15,
+                })))
+                : null)));
+          continue;
+        }
+        if (step.type === 'open') {
+          const wip = step.status === 'wip' && streaming;
+          const failed = step.status === 'wip' && !streaming;
+          const pages = step.urls.slice(0, 5);
+          body.push(h(StepRow, { key: 'o' + i, last },
+            h('div', { className: 'dsc-stepOpen' },
+              h(BrowseSiteIcon),
+              h('span', null, wip
+                ? t('readingLink')
+                : failed ? t('browseFailed') : t('browsedPages').replace('{count}', String(step.urls.length))),
+              pages.map((url) => h('a', {
+                key: url,
+                className: 'dsc-stepPage',
+                href: url,
+                target: '_blank',
+                rel: 'noreferrer noopener',
+                title: url,
+              }, hostOf(url))),
+              step.urls.length > 5
+                ? h('button', { type: 'button', className: 'dsc-stepChip', onClick: onOpenSources }, t('viewAll'))
+                : null)));
+        }
+      }
+      return h('div', { className: 'dsc-reasonArea' },
         h('button', {
           type: 'button',
-          className: 'dsc-reasoningToggle',
-          'aria-expanded': open,
-          onClick: () => setOpen((value) => !value),
+          className: 'dsc-reasonHead',
+          'data-live': streaming && !hasAnswer ? 'true' : 'false',
+          'aria-expanded': open ? 'true' : 'false',
+          onClick: onToggle,
         },
-          live ? h('span', { className: 'dsc-liveDot' }) : null,
-          h('span', null, t(live ? 'thinkingLive' : 'thinkingDone')),
+          h(ThinkIcon),
+          h('span', { className: 'dsc-reasonTitle' }, title),
           h(ChevronIcon, { open })),
-        open ? h('div', { className: 'dsc-reasoningBody' }, text) : null);
+        open ? h('div', { className: 'dsc-reasonSteps' }, body) : null);
     }
 
     /** Keep one search snippet short enough to read at a glance. */
@@ -2409,7 +3001,12 @@ h3.dsc-mdHeading { font-size: 15px; }
               steps.push(pending);
               pending = null;
             }
-            steps.push({ kind: 'open', queries: [], results: [], urls: [block.url] });
+            const previous = steps[steps.length - 1];
+            if (previous && previous.kind === 'open') {
+              if (previous.urls.indexOf(block.url) < 0) previous.urls.push(block.url);
+            } else {
+              steps.push({ kind: 'open', queries: [], results: [], urls: [block.url] });
+            }
             continue;
           }
           if (block.queries && block.queries.length) {
@@ -2429,12 +3026,18 @@ h3.dsc-mdHeading { font-size: 15px; }
         }
         if (block.type === 'fetch') {
           const urls = block.urls || [];
-          if (urls.length) {
-            if (pending) {
-              steps.push(pending);
-              pending = null;
-            }
-            steps.push({ kind: 'open', queries: [], results: [], urls: urls.slice() });
+          if (!urls.length) continue;
+          if (pending) {
+            steps.push(pending);
+            pending = null;
+          }
+          const previous = steps[steps.length - 1];
+          const target = previous && previous.kind === 'open'
+            ? previous
+            : { kind: 'open', queries: [], results: [], urls: [] };
+          if (target !== previous) steps.push(target);
+          for (let j = 0; j < urls.length; j += 1) {
+            if (target.urls.indexOf(urls[j]) < 0) target.urls.push(urls[j]);
           }
         }
       }
@@ -2459,6 +3062,15 @@ h3.dsc-mdHeading { font-size: 15px; }
       return sources;
     }
 
+    /** Published dates arrive as ISO strings; the demo shows YYYY/MM/DD. */
+    function formatDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      const pad = (number) => (number < 10 ? '0' + number : String(number));
+      return date.getFullYear() + '/' + pad(date.getMonth() + 1) + '/' + pad(date.getDate());
+    }
+
     /** One result card: site, date, title, and a two-line snippet, all linking out. */
     function SourceCard(props) {
       const { source } = props;
@@ -2472,7 +3084,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         h('div', { className: 'dsc-sourceMeta' },
           h(SiteDot, { name: source.site || hostOf(source.url) }),
           h('span', { className: 'dsc-sourceSite' }, source.site || hostOf(source.url)),
-          source.date ? h('span', { className: 'dsc-sourceDate' }, source.date) : null),
+          source.date ? h('span', { className: 'dsc-sourceDate' }, formatDate(source.date)) : null),
         h('div', { className: 'dsc-sourceTitle' }, source.title || source.url),
         source.snippet
           ? h('div', { className: 'dsc-sourceSnippet' }, clipSnippet(source.snippet))
@@ -2633,8 +3245,9 @@ h3.dsc-mdHeading { font-size: 15px; }
 
     /** One assistant message rendered from its streamed blocks. */
     function AssistantMessage(props) {
-      const { message, streaming, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t, searchOpen, onToggleSearch } = props;
+      const { message, streaming, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t, onOpenSources, onOpenSettings } = props;
       const [copied, setCopied] = useState(false);
+      const [reasonOpen, setReasonOpen] = useState(true);
       const blocks = message.blocks || [];
       const answer = assistantText(message);
       const copy = useCallback(() => {
@@ -2645,8 +3258,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         });
       }, [answer]);
       const hasBody = Boolean(answer.trim());
-      const thinking = blocks.filter((block) => block.type === 'thinking').map((block) => block.text).join('\n\n').trim();
-      const searchSteps = buildSearchSteps(blocks);
+      const steps = buildSteps(blocks);
       const sources = collectSources(blocks);
       const citeIndex = {};
       let cites = 0;
@@ -2658,6 +3270,8 @@ h3.dsc-mdHeading { font-size: 15px; }
           citeIndex[list[j].url] = cites;
         }
       }
+      const byUrl = {};
+      for (let i = 0; i < sources.length; i += 1) byUrl[sources[i].url] = sources[i];
       // The service splits a reply into one text block per citation. Joining them
       // again keeps the sentences — and the punctuation after a citation — inline.
       let source = '';
@@ -2674,40 +3288,51 @@ h3.dsc-mdHeading { font-size: 15px; }
       }
       const body = source
         ? h('div', { className: 'dsc-botBody' },
-          renderMarkdown(source, t, message.id),
+          renderMarkdown(source, t, message.id, byUrl),
           streaming ? h('span', { className: 'dsc-caret' }) : null)
         : streaming ? h('div', { className: 'dsc-botBody' }, h('span', { className: 'dsc-caret' })) : null;
+      const notice = describeReply(message, t);
       return h('div', { className: 'dsc-botRow' },
         h('div', { className: 'dsc-botHead' },
           h('span', { className: 'dsc-botMark' }, h(BrandMark, { size: 16 })),
-          h('span', { className: 'dsc-botName' }, t('assistantName')),
-          streaming ? h('span', { className: 'dsc-liveDot' }) : null,
-          hasBody && !streaming
-            ? h('span', { className: 'dsc-botActions' },
-              h('button', {
-                type: 'button',
-                className: 'dsc-plainAction',
-                disabled: speakPending,
-                title: speaking ? t('stopReading') : t('speak'),
-                onClick: onSpeak,
-              }, speaking ? t('stopReading') : speakPending ? '…' : t('speak')),
-              h('button', { type: 'button', className: 'dsc-plainAction', onClick: copy }, copied ? t('copied') : t('copy')),
-              canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null)
-            : null),
-        thinking ? h(Reasoning, { text: thinking, live: streaming && !hasBody, t }) : null,
-        h(SearchTrail, {
-          steps: searchSteps,
-          sources,
+          h('span', { className: 'dsc-botName' }, t('assistantName'))),
+        h(ReasoningArea, {
+          blocks,
+          steps,
           streaming,
-          open: searchOpen === true,
-          onToggle: onToggleSearch,
+          hasAnswer: hasBody,
+          now: streaming ? Date.now() : (message.updatedAt || Date.now()),
           t,
+          onOpenSources: onOpenSources,
+          open: reasonOpen,
+          onToggle: () => setReasonOpen(!reasonOpen),
         }),
         body,
-        message.error ? h('div', { className: 'dsc-error', role: 'alert' }, t('error') + ': ' + message.error) : null,
-        message.status === 'stopped' ? h('div', { className: 'dsc-stopNote' }, t('stopped')) : null);
+        notice ? h('div', { className: 'dsc-noticeLine', role: 'alert', 'data-error': notice.error ? 'true' : 'false' },
+          notice.error ? h(WarningIcon) : null,
+          h('span', null, notice.text),
+          notice.action === 'apiKey'
+            ? h('button', { type: 'button', className: 'dsc-noticeAction', onClick: onOpenSettings }, t('changeApiKey'))
+            : null,
+          notice.action === 'topUp'
+            ? h('a', { className: 'dsc-noticeAction', href: TOP_UP_URL, target: '_blank', rel: 'noreferrer noopener' }, t('topUp'))
+            : null,
+          notice.retry
+            ? h('button', { type: 'button', className: 'dsc-noticeAction', onClick: onRegenerate }, t('retry'))
+            : null) : null,
+        hasBody && !streaming
+          ? h('div', { className: 'dsc-botFoot' },
+            h('button', {
+              type: 'button',
+              className: 'dsc-plainAction',
+              disabled: speakPending,
+              title: speaking ? t('stopReading') : t('speak'),
+              onClick: onSpeak,
+            }, speaking ? t('stopReading') : speakPending ? '…' : t('speak')),
+            h('button', { type: 'button', className: 'dsc-plainAction', onClick: copy }, copied ? t('copied') : t('copy')),
+            canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null)
+          : null);
     }
-
     /** One conversation row with inline rename and delete. */
     function ConversationRow(props) {
       const { conversation, active, renaming, t, onSelect, onStartRename, onCommitRename, onCancelRename, onDelete } = props;
@@ -2781,6 +3406,38 @@ h3.dsc-mdHeading { font-size: 15px; }
     }
 
     /** The settings dialog: API key, base URL, model, and destructive reset. */
+    /** A small confirmation dialog; used before deleting a conversation. */
+    function ConfirmDialog(props) {
+      const { title, body, confirmLabel, t, onConfirm, onCancel } = props;
+      return h('div', { className: 'dsc-dialogBackdrop', onClick: onCancel },
+        h('div', {
+          className: 'dsc-dialog',
+          role: 'dialog',
+          'aria-modal': 'true',
+          'aria-label': title,
+          onClick: (event) => event.stopPropagation(),
+        },
+          h('div', { className: 'dsc-dialogHead' },
+            h('h2', { className: 'dsc-dialogTitle' }, title),
+            h('button', {
+              type: 'button',
+              className: 'dsc-iconButton',
+              title: t('close'),
+              'aria-label': t('close'),
+              onClick: onCancel,
+            }, h(CloseIcon))),
+          h('p', { className: 'dsc-dialogHint' }, body),
+          h('div', { className: 'dsc-dialogFoot' },
+            h('span', { className: 'dsc-spacer' }),
+            h('button', { type: 'button', className: 'dsc-button', onClick: onCancel }, t('cancel')),
+            h('button', {
+              type: 'button',
+              className: 'dsc-button',
+              'data-primary': 'true',
+              onClick: onConfirm,
+            }, confirmLabel))));
+    }
+
     function SettingsDialog(props) {
       const { t, settings, onSave, onClose, onClearAll } = props;
       const [apiKey, setApiKey] = useState(settings.apiKey);
@@ -2927,6 +3584,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [attachments, setAttachments] = useState([]);
       const [dragging, setDragging] = useState(false);
       const [drawerId, setDrawerId] = useState(null);
+      const [pendingDelete, setPendingDelete] = useState(null);
       const [ttsId, setTtsId] = useState(null);
       const [ttsPendingId, setTtsPendingId] = useState(null);
       const inputRef = useRef(null);
@@ -3061,16 +3719,20 @@ h3.dsc-mdHeading { font-size: 15px; }
         setStreamingId(messageId);
         stickRef.current = true;
         let blocks = [];
+        let stopReason = '';
         const indexes = new Map();
         try {
           for await (const event of streamMessage({ settings, messages, search, signal: controller.signal })) {
+            if (event.type === 'message_delta' && event.delta && typeof event.delta.stop_reason === 'string') {
+              stopReason = event.delta.stop_reason;
+            }
             const next = applyStreamEvent(blocks, indexes, event);
             if (next !== blocks) {
               blocks = next;
               patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { blocks }));
             }
           }
-          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { blocks, status: 'done' }));
+          patchMessage(conversationId, messageId, (message) => Object.assign({}, message, { blocks, status: 'done', stopReason }));
         } catch (error) {
           const aborted = Boolean(error && error.name === 'AbortError');
           patchMessage(conversationId, messageId, (message) => Object.assign({}, message, {
@@ -3125,7 +3787,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           setConversations((previous) => [created].concat(previous));
           setActiveId(conversationId);
         }
-        const request = requestMessages(history, userMessage);
+        const request = requestMessages(history, userMessage, t('send') === 'Send');
         setDraft('');
         setAttachments([]);
         setNotice('');
@@ -3490,7 +4152,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         if (!last || last.role !== 'assistant') return;
         const question = messages[lastIndex - 1];
         if (!question || question.role !== 'user') return;
-        const request = requestMessages(messages.slice(0, lastIndex - 1), question);
+        const request = requestMessages(messages.slice(0, lastIndex - 1), question, t('send') === 'Send');
         patchMessage(conversation.id, last.id, (message) => Object.assign({}, message, {
           blocks: [], status: 'streaming', error: '',
         }));
@@ -3577,22 +4239,24 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('span', { className: 'dsc-railEmptyMark' }, h(PanelIcon, { size: 20 })),
               h('span', null, t('railEmpty')),
               h('span', { className: 'dsc-railEmptyHint' }, t('railEmptyHint')))
-            : sortConversations(conversations).map((conversation) => h(ConversationRow, {
-              key: conversation.id,
-              conversation,
-              active: conversation.id === activeId,
-              renaming: conversation.id === renamingId,
-              t,
-              onSelect: () => {
-                setActiveId(conversation.id);
-                setDrawerId(null);
-                if (narrow) setRailOpen(false);
-              },
-              onStartRename: () => setRenamingId(conversation.id),
-              onCommitRename: (value) => commitRename(conversation.id, value),
-              onCancelRename: () => setRenamingId(null),
-              onDelete: () => deleteConversation(conversation.id),
-            }))),
+            : groupConversations(conversations, t).map((group) => h('div', { key: group.key, className: 'dsc-railGroup' },
+              h('div', { className: 'dsc-railGroupLabel' }, group.label),
+              group.items.map((conversation) => h(ConversationRow, {
+                key: conversation.id,
+                conversation,
+                active: conversation.id === activeId,
+                renaming: conversation.id === renamingId,
+                t,
+                onSelect: () => {
+                  setActiveId(conversation.id);
+                  setDrawerId(null);
+                  if (narrow) setRailOpen(false);
+                },
+                onStartRename: () => setRenamingId(conversation.id),
+                onCommitRename: (value) => commitRename(conversation.id, value),
+                onCancelRename: () => setRenamingId(null),
+                onDelete: () => setPendingDelete(conversation.id),
+              }))))),
         h('div', { className: 'dsc-railFoot' },
           h('button', {
             type: 'button',
@@ -3627,8 +4291,8 @@ h3.dsc-mdHeading { font-size: 15px; }
               onSpeak: () => toggleSpeak(message),
               speaking: ttsId === message.id,
               speakPending: ttsPendingId === message.id,
-              searchOpen: drawerId === message.id,
-              onToggleSearch: () => setDrawerId((current) => (current === message.id ? null : message.id)),
+              onOpenSources: () => setDrawerId((current) => (current === message.id ? null : message.id)),
+              onOpenSettings: () => setSettingsOpen(true),
               t,
             }));
         }));
@@ -3775,7 +4439,7 @@ h3.dsc-mdHeading { font-size: 15px; }
             }, h(PanelToggleIcon))
             : null,
           h('span', { className: 'dsc-chatTitle' },
-            (active && active.title) || t('newChat'),
+            (active && active.title) || t('untitled'),
             h('span', { className: 'dsc-chatSub' }, settings.model)),
           h('button', {
             type: 'button',
@@ -3805,7 +4469,8 @@ h3.dsc-mdHeading { font-size: 15px; }
             : h('div', { className: 'dsc-notice dsc-noticeRow', role: 'status' },
               h('span', null, t('missingKey')),
               h('button', { type: 'button', className: 'dsc-plainAction', onClick: () => setSettingsOpen(true) }, t('settings'))),
-          composer));
+          composer,
+          h('div', { className: 'dsc-caveat' }, t('caveat'))));
 
       const drawerMessage = drawerId ? messages.find((message) => message.id === drawerId) : null;
       const drawer = drawerMessage
@@ -3837,6 +4502,19 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('span', { className: 'dsc-dropIcon' }, h(PaperclipIcon)),
               h('span', { className: 'dsc-dropTitle' }, t('dropHere')),
               h('span', { className: 'dsc-dropHint' }, t('attachHint'))))
+          : null,
+        pendingDelete
+          ? h(ConfirmDialog, {
+            title: t('deleteTitle'),
+            body: t('deleteBody'),
+            confirmLabel: t('deleteConfirm'),
+            t,
+            onCancel: () => setPendingDelete(null),
+            onConfirm: () => {
+              deleteConversation(pendingDelete);
+              setPendingDelete(null);
+            },
+          })
           : null,
         settingsOpen
           ? h(SettingsDialog, {
