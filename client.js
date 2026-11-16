@@ -66,6 +66,11 @@ window.__ModuleLoader__.load({
       apiKey: 'API key',
       apiKeyPlaceholder: 'sk-…',
       apiKeyHint: 'Stored in localStorage; sent only to the API base URL below.',
+      keyVerify: 'Verify',
+      keyVerifying: 'Verifying…',
+      keyValid: 'Key works',
+      keyInvalid: 'The API key is invalid. Check it and retry.',
+      keyVerifyFailed: 'Verification failed: {message}',
       baseUrl: 'API base URL',
       model: 'Model',
       save: 'Save',
@@ -81,6 +86,10 @@ window.__ModuleLoader__.load({
       stop: 'Stop',
       stopGenerating: 'Stop generating',
       regenerate: 'Regenerate',
+      editMessage: 'Edit message',
+      editingMessage: 'Editing this message — sending replaces it and the replies after it',
+      cancelEdit: 'Cancel',
+      continueGenerating: 'Continue generating',
       copy: 'Copy',
       copied: 'Copied',
       rename: 'Rename',
@@ -185,6 +194,11 @@ window.__ModuleLoader__.load({
       apiKey: 'API Key',
       apiKeyPlaceholder: 'sk-…',
       apiKeyHint: '保存在 localStorage 中，只会发送给下方的 API 地址。',
+      keyVerify: '验证',
+      keyVerifying: '正在验证…',
+      keyValid: 'Key 可用',
+      keyInvalid: 'API Key 无效，请检查后重试',
+      keyVerifyFailed: '校验失败：{message}',
       baseUrl: 'API 地址',
       model: '模型',
       save: '保存',
@@ -200,6 +214,10 @@ window.__ModuleLoader__.load({
       stop: '停止',
       stopGenerating: '停止生成',
       regenerate: '重新生成',
+      editMessage: '编辑消息',
+      editingMessage: '正在编辑这条消息，发送后将替换它及其后的回答',
+      cancelEdit: '取消',
+      continueGenerating: '继续生成',
       copy: '复制',
       copied: '已复制',
       rename: '重命名',
@@ -2375,6 +2393,38 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-dropHint { font-size: 11.5px; color: var(--dsw-alias-label-secondary); }
 
 .dsc-turnUser { margin-bottom: 22px; }
+.dsc-userActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.dsc-turnUser:hover .dsc-userActions { opacity: 1; }
+.dsc-editBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 720px;
+  margin: 0 auto 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+.dsc-continueButton {
+  padding: 2px 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.dsc-continueButton:hover { background: var(--dsw-alias-bg-layer-2); }
 .dsc-userFiles { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; margin-bottom: 6px; }
 .dsc-userText { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dsc-fileChip {
@@ -2534,6 +2584,15 @@ h3.dsc-mdHeading { font-size: 15px; }
 }
 .dsc-inputText:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
 .dsc-root select.dsc-inputText { height: 36px; appearance: auto; }
+.dsc-keyRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 4px;
+  flex-wrap: wrap;
+}
+.dsc-keyOk { color: var(--dsw-alias-state-success-primary); font-size: 12px; }
+.dsc-keyBad { color: var(--dsw-alias-state-error-primary); font-size: 12px; }
 .dsc-fieldHint { margin-top: 5px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
 .dsc-dialogFoot { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
 .dsc-dialogFoot .dsc-spacer { flex: 1; }
@@ -2809,6 +2868,41 @@ h3.dsc-mdHeading { font-size: 15px; }
 
     /** Where the demo sends people when the balance runs out. */
     const TOP_UP_URL = 'https://platform.deepseek.com/top_up';
+
+    /** A reply can be continued only when it stopped early and used no server tools. */
+    function canContinueReply(message) {
+      if (!message || message.status === 'error') return false;
+      if (message.stopReason === 'refusal' || message.stopReason === 'tool_use') return false;
+      const blocks = message.blocks || [];
+      for (let i = 0; i < blocks.length; i += 1) {
+        const type = blocks[i].type;
+        if (type === 'tool' || type === 'sources' || type === 'fetch') return false;
+      }
+      return message.status === 'stopped'
+        || (message.status === 'done' && message.stopReason === 'max_tokens');
+    }
+
+    /** Check one key with the smallest possible request, like the demo's key field. */
+    async function verifyKey(settings) {
+      const response = await fetch(endpoints(settings.baseUrl).messages, {
+        method: 'POST',
+        headers: Object.assign({}, apiHeaders(settings, false), { 'content-type': 'application/json' }),
+        body: JSON.stringify({
+          model: settings.model,
+          max_tokens: 1,
+          thinking: { type: 'disabled' },
+          messages: [{ role: 'user', content: 'hi' }],
+        }),
+      });
+      if (response.ok) return { ok: true, status: response.status };
+      let body = '';
+      try {
+        body = await response.text();
+      } catch (error) {
+        body = '';
+      }
+      return { ok: false, status: response.status, message: describeFailure(response.status, body) };
+    }
 
     /**
      * Map a failed reply onto the notice the demo shows: a short reason plus,
@@ -3327,9 +3421,17 @@ h3.dsc-mdHeading { font-size: 15px; }
 
     /** One user turn: attachments above the text, right-aligned. */
     function UserMessage(props) {
-      const { message, t } = props;
+      const { message, t, onEdit, canEdit } = props;
       const items = message.attachments || [];
       return h('div', { className: 'dsc-userRow' },
+        canEdit
+          ? h('div', { className: 'dsc-userActions' },
+            h('button', {
+              type: 'button',
+              className: 'dsc-plainAction',
+              onClick: onEdit,
+            }, t('editMessage')))
+          : null,
         h('div', { className: 'dsc-userBubble' },
           items.length
             ? h('div', { className: 'dsc-userFiles' }, items.map((item) => h(FileChip, { key: item.id, item, t })))
@@ -3339,7 +3441,7 @@ h3.dsc-mdHeading { font-size: 15px; }
 
     /** One assistant message rendered from its streamed blocks. */
     function AssistantMessage(props) {
-      const { message, streaming, isLast, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t, onOpenSources, onOpenSettings, onSwitchVersion } = props;
+      const { message, streaming, isLast, onRegenerate, canRegenerate, canContinue, onContinue, onSpeak, speaking, speakPending, t, onOpenSources, onOpenSettings, onSwitchVersion } = props;
       const [copied, setCopied] = useState(false);
       const [reasonOpen, setReasonOpen] = useState(true);
       const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : [{ blocks: message.blocks || [] }];
@@ -3446,7 +3548,8 @@ h3.dsc-mdHeading { font-size: 15px; }
               onClick: onSpeak,
             }, speaking ? t('stopReading') : speakPending ? '…' : t('speak')),
             h('button', { type: 'button', className: 'dsc-plainAction', onClick: copy }, copied ? t('copied') : t('copy')),
-            canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null)
+            canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null,
+            canContinue ? h('button', { type: 'button', className: 'dsc-continueButton', onClick: onContinue }, t('continueGenerating')) : null)
           : null);
     }
     /** One conversation row with inline rename and delete. */
@@ -3561,11 +3664,40 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [model, setModel] = useState(settings.model);
       const [voice, setVoice] = useState(settings.voice);
       const [confirming, setConfirming] = useState(false);
+      const [keyCheck, setKeyCheck] = useState({ state: 'idle', message: '' });
       const keyRef = useRef(null);
       useEffect(() => {
         const node = keyRef.current;
         if (node) node.focus();
       }, []);
+      const checkKey = async () => {
+        const target = Object.assign({}, settings, {
+          apiKey: apiKey.trim(),
+          baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
+          model: model.trim() || DEFAULT_MODEL,
+        });
+        if (!target.apiKey) return;
+        setKeyCheck({ state: 'checking', message: '' });
+        try {
+          const result = await verifyKey(target);
+          if (result.ok) {
+            setKeyCheck({ state: 'ok', message: '' });
+            return;
+          }
+          if (result.status === 401) {
+            setKeyCheck({ state: 'bad', message: t('keyInvalid') });
+            return;
+          }
+          if (result.status === 402) {
+            setKeyCheck({ state: 'bad', message: t('noticeBalance') });
+            return;
+          }
+          setKeyCheck({ state: 'bad', message: t('keyVerifyFailed').replace('{message}', result.message || '') });
+        } catch (error) {
+          setKeyCheck({ state: 'bad', message: t('keyVerifyFailed').replace('{message}', error && error.message ? error.message : String(error)) });
+        }
+      };
+
       const submit = () => {
         onSave(Object.assign({}, settings, {
           apiKey: apiKey.trim(),
@@ -3616,6 +3748,15 @@ h3.dsc-mdHeading { font-size: 15px; }
               value: apiKey,
               onChange: (event) => setApiKey(event.target.value),
             }),
+            h('div', { className: 'dsc-keyRow' },
+              h('button', {
+                type: 'button',
+                className: 'dsc-button',
+                onClick: checkKey,
+                disabled: keyCheck.state === 'checking' || !apiKey.trim(),
+              }, keyCheck.state === 'checking' ? t('keyVerifying') : t('keyVerify')),
+              keyCheck.state === 'ok' ? h('span', { className: 'dsc-keyOk' }, t('keyValid')) : null,
+              keyCheck.state === 'bad' ? h('span', { className: 'dsc-keyBad' }, keyCheck.message) : null),
             h('div', { className: 'dsc-fieldHint' }, t('apiKeyHint'))),
           h('div', { className: 'dsc-field' },
             h('label', { className: 'dsc-label', htmlFor: 'dsc-base-url' }, t('baseUrl')),
@@ -3701,6 +3842,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [dragging, setDragging] = useState(false);
       const [drawerId, setDrawerId] = useState(null);
       const [pendingDelete, setPendingDelete] = useState(null);
+      const [editing, setEditing] = useState(null);
       const [ttsId, setTtsId] = useState(null);
       const [ttsPendingId, setTtsPendingId] = useState(null);
       const inputRef = useRef(null);
@@ -3829,12 +3971,12 @@ h3.dsc-mdHeading { font-size: 15px; }
        * @param messages - request messages built by `requestMessages`.
        * @param search - declare the server-side web search tool.
        */
-      const runReply = useCallback(async (conversationId, messageId, messages, search) => {
+      const runReply = useCallback(async (conversationId, messageId, messages, search, options) => {
         const controller = new AbortController();
         abortRef.current = controller;
         setStreamingId(messageId);
         stickRef.current = true;
-        let blocks = [];
+        let blocks = options && options.initialBlocks ? options.initialBlocks.slice() : [];
         let stopReason = '';
         const indexes = new Map();
         try {
@@ -3872,6 +4014,33 @@ h3.dsc-mdHeading { font-size: 15px; }
           setNotice(t('missingKey'));
           setSettingsOpen(true);
           return;
+        }
+        if (editing) {
+          const target = findConversation(editing.conversationId);
+          const index = target ? target.messages.findIndex((item) => item.id === editing.messageId) : -1;
+          if (target && index >= 0) {
+            const original = target.messages[index];
+            const question = Object.assign({}, original, {
+              text,
+              attachments: ready.length ? ready.map(attachmentMeta) : (original.attachments || []),
+            });
+            const history = target.messages.slice(0, index);
+            const botMessage = { id: uid(), role: 'assistant', blocks: [], status: 'streaming', error: '' };
+            updateConversation(target.id, (item) => Object.assign({}, item, {
+              title: item.title || titleFrom(text),
+              updatedAt: Date.now(),
+              messages: history.concat([question, botMessage]),
+            }));
+            const request = requestMessages(history, question, t('send') === 'Send');
+            setDraft('');
+            setAttachments([]);
+            setEditing(null);
+            setNotice('');
+            stickRef.current = true;
+            runReply(target.id, botMessage.id, request, settings.webSearch);
+            return;
+          }
+          setEditing(null);
         }
         const userMessage = {
           id: uid(),
@@ -3913,7 +4082,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           const node = inputRef.current;
           if (node) node.focus();
         }, 0);
-      }, [activeId, attachments, busy, draft, findConversation, runReply, settings.apiKey, settings.webSearch, t, updateConversation, uploading]);
+      }, [activeId, attachments, busy, draft, editing, findConversation, runReply, settings.apiKey, settings.webSearch, t, updateConversation, uploading]);
 
       /** Show the previous or next answer version of one turn. */
       const switchVersion = useCallback((conversationId, messageId, direction) => {
@@ -4278,6 +4447,25 @@ h3.dsc-mdHeading { font-size: 15px; }
         }
       }, [settings, stopSpeaking, t, ttsId, ttsPendingId]);
 
+      /** Keep generating a reply the service cut short, appending to the same blocks. */
+      const continueReply = useCallback((conversation, message) => {
+        if (!conversation || busy || !canContinueReply(message)) return;
+        const messages = conversation.messages;
+        const index = messages.findIndex((item) => item.id === message.id);
+        if (index < 1) return;
+        const question = messages[index - 1];
+        if (!question || question.role !== 'user') return;
+        const request = requestMessages(messages.slice(0, index - 1), question, t('send') === 'Send');
+        // An assistant prefill tells the service to keep going from the cut point.
+        request.push({ role: 'assistant', content: [{ type: 'text', text: assistantText(message) }] });
+        patchMessage(conversation.id, message.id, (item) => patchVersion(item, {
+          status: 'streaming',
+          stopReason: '',
+          error: '',
+        }));
+        runReply(conversation.id, message.id, request, settings.webSearch, { initialBlocks: message.blocks || [] });
+      }, [busy, patchMessage, runReply, settings.webSearch, t]);
+
       const regenerate = useCallback((conversation) => {
         if (!conversation || busy) return;
         const messages = conversation.messages;
@@ -4431,7 +4619,23 @@ h3.dsc-mdHeading { font-size: 15px; }
             }, t(key)))))
         : h('div', { className: 'dsc-thread' }, messages.map((message) => {
           if (message.role === 'user') {
-            return h('div', { key: message.id, className: 'dsc-turn dsc-turnUser' }, h(UserMessage, { message, t }));
+            return h('div', { key: message.id, className: 'dsc-turn dsc-turnUser' }, h(UserMessage, {
+              message,
+              t,
+              canEdit: !busy,
+              onEdit: () => {
+                setEditing({ conversationId: activeId, messageId: message.id });
+                setDraft(message.text || '');
+                setAttachments([]);
+                window.setTimeout(() => {
+                  const node = inputRef.current;
+                  if (node) {
+                    node.focus();
+                    node.select();
+                  }
+                }, 0);
+              },
+            }));
           }
           return h('div', { key: message.id, className: 'dsc-turn' },
             h(AssistantMessage, {
@@ -4439,6 +4643,8 @@ h3.dsc-mdHeading { font-size: 15px; }
               streaming: message.id === streamingId,
               canRegenerate,
               isLast: canRegenerate,
+              canContinue: canContinueReply(message),
+              onContinue: () => continueReply(active, message),
               onRegenerate: () => regenerate(active),
               onSpeak: () => toggleSpeak(message),
               speaking: ttsId === message.id,
@@ -4622,6 +4828,18 @@ h3.dsc-mdHeading { font-size: 15px; }
             : h('div', { className: 'dsc-notice dsc-noticeRow', role: 'status' },
               h('span', null, t('missingKey')),
               h('button', { type: 'button', className: 'dsc-plainAction', onClick: () => setSettingsOpen(true) }, t('settings'))),
+          editing
+            ? h('div', { className: 'dsc-editBar' },
+              h('span', { className: 'dsc-editLabel' }, t('editingMessage')),
+              h('button', {
+                type: 'button',
+                className: 'dsc-plainAction',
+                onClick: () => {
+                  setEditing(null);
+                  setDraft('');
+                },
+              }, t('cancelEdit')))
+            : null,
           composer,
           h('div', { className: 'dsc-caveat' }, t('caveat'))));
 
