@@ -539,12 +539,27 @@ function createSteps(page, options) {
     const reloadAfter = !(overrides && overrides.__noReload === true);
     delete wanted.__noReload;
     const payload = JSON.stringify(wanted);
-    await evaluate((key, conversationsKey, text) => {
-      window.localStorage.removeItem(conversationsKey);
-      window.localStorage.setItem(key, text);
-      return true;
-    }, [SETTINGS_KEY, CONVERSATIONS_KEY, payload]);
-    if (reloadAfter) await reload();
+    if (reloadAfter) {
+      // The plugin flushes its in-memory conversations on unmount, which would
+      // overwrite a plain removeItem just before the reload. Clear storage at
+      // new-document time instead, after that flush and before the panel mounts.
+      const source = 'try { window.localStorage.removeItem(' + JSON.stringify(CONVERSATIONS_KEY)
+        + '); } catch (error) {} '
+        + 'window.localStorage.setItem(' + JSON.stringify(SETTINGS_KEY) + ', '
+        + JSON.stringify(payload) + ');';
+      const early = await page.send('Page.addScriptToEvaluateOnNewDocument', { source });
+      try {
+        await reload();
+      } finally {
+        await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: early.identifier });
+      }
+    } else {
+      await evaluate((key, conversationsKey, text) => {
+        window.localStorage.removeItem(conversationsKey);
+        window.localStorage.setItem(key, text);
+        return true;
+      }, [SETTINGS_KEY, CONVERSATIONS_KEY, payload]);
+    }
     return {
       baseUrl: wanted.baseUrl,
       model: wanted.model,

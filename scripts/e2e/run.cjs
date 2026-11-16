@@ -246,29 +246,53 @@ async function main() {
       const check = selected[index];
       const cost = check.cost === 'api' ? '（会消耗一次真实 API 调用）' : '';
       console.log('\n[' + (index + 1) + '/' + selected.length + '] ' + check.name + ' — ' + (check.description || '') + cost);
-      try {
-        const result = await runCheck(session, check, options);
-        const seconds = (result.durationMs / 1000).toFixed(1);
-        if (result.failure) {
-          failures.push(check.name);
-          console.log('  FAIL  ' + check.name + ' (' + seconds + 's)'
-            + (result.shotPath ? '  → ' + path.relative(process.cwd(), result.shotPath) : ''));
-          console.log('        ' + errorText(result.failure));
-          const pageErrors = session.steps.consoleErrors();
-          if (pageErrors.length) {
-            console.log('        页面错误: ' + pageErrors.slice(-3).join(' | '));
+
+      // A headless renderer can die mid-suite (CDP socket closes). That is not a
+      // product failure: reboot Chrome and retry the check once before giving up.
+      let result = null;
+      let setupError = null;
+      for (let attempt = 1; attempt <= 2 && !result; attempt += 1) {
+        try {
+          result = await runCheck(session, check, options);
+        } catch (error) {
+          setupError = error;
+          if (attempt === 1) {
+            console.log('  准备阶段失败，重启浏览器后重试一次: ' + errorText(error).split('\n')[0]);
+            await shutdown();
+            try {
+              session = await openPage({
+                width: 1440,
+                height: 900,
+                freshProfile: options.freshProfile,
+              });
+            } catch (reopenError) {
+              console.log('  重启浏览器失败: ' + errorText(reopenError).split('\n')[0]);
+              break;
+            }
           }
-        } else {
-          passed += 1;
-          console.log('  PASS  ' + check.name + ' (' + seconds + 's)'
-            + (result.shotPath ? '  → ' + path.relative(process.cwd(), result.shotPath) : ''));
         }
-      } catch (error) {
-        // Setup failures (browser/page state) abort the remaining checks.
+      }
+      if (!result) {
         failures.push(check.name);
-        console.log('  FAIL  ' + check.name + ' — 准备阶段失败');
-        console.log('        ' + errorText(error));
+        console.log('  FAIL  ' + check.name + ' — 准备阶段失败（浏览器无法恢复）');
+        console.log('        ' + errorText(setupError));
         break;
+      }
+
+      const seconds = (result.durationMs / 1000).toFixed(1);
+      if (result.failure) {
+        failures.push(check.name);
+        console.log('  FAIL  ' + check.name + ' (' + seconds + 's)'
+          + (result.shotPath ? '  → ' + path.relative(process.cwd(), result.shotPath) : ''));
+        console.log('        ' + errorText(result.failure));
+        const pageErrors = session.steps.consoleErrors();
+        if (pageErrors.length) {
+          console.log('        页面错误: ' + pageErrors.slice(-3).join(' | '));
+        }
+      } else {
+        passed += 1;
+        console.log('  PASS  ' + check.name + ' (' + seconds + 's)'
+          + (result.shotPath ? '  → ' + path.relative(process.cwd(), result.shotPath) : ''));
       }
     }
   } finally {

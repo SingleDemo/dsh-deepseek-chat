@@ -170,38 +170,53 @@ async function importBackupFile(ctx, file) {
   });
 }
 
-/** Build fake conversations and inject them before the panel mounts (early script). */
+/**
+ * Build fake conversations as the panel's native message TREE (rootId +
+ * parentId/selectedChildId). Older builds migrated a flat list into a linear
+ * chain, which silently drops branches, so the stored seeds carry the tree
+ * fields from the start.
+ */
 function buildSeedConversations(definitions, now) {
-  return definitions.map((item, index) => ({
-    id: item.id,
-    title: item.title,
-    createdAt: now - 9000 + index * 1000,
-    updatedAt: now - 8000 + index * 1000,
-    messages: [
-      { id: item.id + '-u', role: 'user', text: item.question, attachments: [] },
-      {
-        id: item.id + '-a',
-        role: 'assistant',
-        blocks: [{ type: 'text', text: item.answer, citations: [] }],
-        status: 'done',
-        stopReason: 'end_turn',
-        error: '',
-      },
-    ],
-  }));
+  return definitions.map((item, index) => {
+    const questionId = item.id + '-u';
+    const answerId = item.id + '-a';
+    return {
+      id: item.id,
+      title: item.title,
+      createdAt: now - 9000 + index * 1000,
+      updatedAt: now - 8000 + index * 1000,
+      rootId: questionId,
+      messages: [
+        {
+          id: questionId,
+          role: 'user',
+          parentId: null,
+          selectedChildId: answerId,
+          createdAt: now - 9000 + index * 1000,
+          text: item.question,
+          attachments: [],
+        },
+        {
+          id: answerId,
+          role: 'assistant',
+          parentId: questionId,
+          selectedChildId: null,
+          createdAt: now - 8500 + index * 1000,
+          blocks: [{ type: 'text', text: item.answer, citations: [] }],
+          status: 'done',
+          stopReason: 'end_turn',
+          error: '',
+        },
+      ],
+    };
+  });
 }
 
-/**
- * Replace the stored conversations with the given seed list and reload. The
- * plugin flushes its in-memory list on unmount, so the seed must be written at
- * new-document time (Page.addScriptToEvaluateOnNewDocument) rather than with a
- * plain localStorage write before reload.
- */
-async function seedConversations(ctx, definitions) {
+/** Write conversations straight into localStorage and reload into the panel. */
+async function seedStoredConversations(ctx, conversations) {
   const s = ctx.steps;
-  const list = buildSeedConversations(definitions, Date.now());
   const source = 'window.localStorage.setItem(' + JSON.stringify(CONVERSATIONS_KEY) + ', '
-    + JSON.stringify(JSON.stringify(list)) + ');';
+    + JSON.stringify(JSON.stringify(conversations)) + ');';
   const early = await ctx.page.send('Page.addScriptToEvaluateOnNewDocument', { source });
   try {
     await s.reload();
@@ -210,8 +225,13 @@ async function seedConversations(ctx, definitions) {
   }
   await s.openPanel();
   await s.waitFor(expected => document.querySelectorAll('.dsc-railList .dsc-row').length === expected,
-    { timeout: 10000, label: '种子的 ' + list.length + ' 条会话出现在 rail' }, [list.length]);
-  return list;
+    { timeout: 10000, label: '种子的 ' + conversations.length + ' 条会话出现在 rail' }, [conversations.length]);
+  return conversations;
+}
+
+/** Build fake linear conversations and inject them before the panel mounts. */
+async function seedConversations(ctx, definitions) {
+  return await seedStoredConversations(ctx, buildSeedConversations(definitions, Date.now()));
 }
 
 /** The conversations currently persisted in localStorage. */
@@ -285,6 +305,35 @@ function readLocalEntries(bytes) {
   return entries;
 }
 
+/** Read one ‹ n / N › version pager (null when absent). */
+async function readPager(ctx, scope) {
+  return await ctx.steps.eval((selector) => {
+    const pager = document.querySelector(selector);
+    if (!pager) return null;
+    const label = pager.querySelector('.dsc-versionLabel');
+    const arrows = Array.from(pager.querySelectorAll('button'));
+    return {
+      label: label ? (label.innerText || '').trim() : '',
+      arrows: arrows.map((button) => ({ disabled: button.disabled, title: button.getAttribute('title') || '' })),
+    };
+  }, [scope]);
+}
+
+/** Click one arrow of a pager (0 = previous / ‹, 1 = next / ›). */
+async function clickPagerArrow(ctx, scope, index) {
+  const clicked = await ctx.steps.eval((selector, at) => {
+    const pager = document.querySelector(selector);
+    if (!pager) return false;
+    const arrows = Array.from(pager.querySelectorAll('button'));
+    const button = arrows[at];
+    if (!button || button.disabled) return false;
+    button.click();
+    return true;
+  }, [scope, index]);
+  if (!clicked) throw new Error('pager 箭头不可点击: ' + scope + ' #' + index);
+  await ctx.steps.wait(300);
+}
+
 module.exports = {
   FIXTURES_DIR,
   VALIDATOR,
@@ -297,10 +346,13 @@ module.exports = {
   exportByDownload,
   importBackupFile,
   buildSeedConversations,
+  seedStoredConversations,
   seedConversations,
   storedConversations,
   railTitles,
   openRailConversation,
   validateBackup,
   readLocalEntries,
+  readPager,
+  clickPagerArrow,
 };

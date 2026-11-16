@@ -1301,6 +1301,13 @@ window.__ModuleLoader__.load({
         rootId = ids.get(chain[0]);
       }
       if (!rootId) rootId = nodes.find((node) => !node.parentId) ? nodes.find((node) => !node.parentId).id : nodes[0].id;
+      // Off-current-path branches still need a selected child, or they dead-end.
+      for (let i = 0; i < nodes.length; i += 1) {
+        const node = nodes[i];
+        if (node.selectedChildId) continue;
+        const child = nodes.find((candidate) => candidate.parentId === node.id);
+        if (child) node.selectedChildId = child.id;
+      }
       const createdAt = Date.parse(session.inserted_at);
       const updatedAt = Date.parse(session.updated_at);
       return {
@@ -6229,7 +6236,8 @@ h3.dsc-mdHeading { font-size: 15px; }
       /** Apply an imported archive: replace every conversation and persist it. */
       const applyImported = useCallback((conversations, result) => {
         if (abortRef.current) abortRef.current.abort();
-        const list = sortConversations(conversations);
+        // Same normalization the loader applies, so an imported tree can never render half-broken.
+        const list = sortConversations(sanitizeConversations(conversations));
         if (!writeJson(CONVERSATIONS_KEY, list)) {
           setNotice(t('importIncomplete'));
           return;

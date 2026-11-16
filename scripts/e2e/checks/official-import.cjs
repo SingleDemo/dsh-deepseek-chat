@@ -100,22 +100,50 @@ module.exports = {
       ctx.log('DEFLATE + data descriptor 导入成功');
       await s.shot('official-import-deflate');
 
-      // 3. All 13 fragment types + a branch: must import without crashing.
+      // 3. All 13 fragment types + a branch: imports without crashing AND keeps
+      //    the second ASSISTANT sibling reachable through the version pager.
       await h.openSettings(ctx);
       await h.importBackupFile(ctx, h.fixture('official-backup-fragments.zip'));
       await waitRail(1, 'fragments fixture 导入后 rail 只有 1 条');
       stored = await h.storedConversations(ctx);
       ctx.assertEqual(stored.length, 1, 'fragments 包导入后 localStorage 只有 1 个对话');
       ctx.assertEqual(stored[0].title, '', 'fragments fixture 的 null 标题导入为空字符串');
-      ctx.assert(Array.isArray(stored[0].messages) && stored[0].messages.length >= 2,
-        'fragments 包至少导入 user + assistant 两条消息（实际 ' + (stored[0].messages || []).length + '）');
+      const fragmentConversation = stored[0];
+      ctx.assertEqual((fragmentConversation.messages || []).length, 3,
+        '导入保留 USER + 两个 ASSISTANT 兄弟节点（实际 ' + (fragmentConversation.messages || []).length + '）');
+      const rootUser = fragmentConversation.messages.find((node) => node.role === 'user');
+      ctx.assert(rootUser, 'fragments 会话里有 USER 根节点');
+      ctx.assertEqual(fragmentConversation.rootId, rootUser.id, 'rootId 指向该 USER 根节点');
+      const answerSiblings = fragmentConversation.messages
+        .filter((node) => node.parentId === rootUser.id && node.role === 'assistant');
+      ctx.assertEqual(answerSiblings.length, 2, '该 USER 下保留了两个回答兄弟节点');
+      ctx.assertEqual(rootUser.selectedChildId, answerSiblings[0].id,
+        'current_message_id 指向的第一个回答是默认选中分支');
       await h.openRailConversation(ctx);
       const fragments = await threadText();
       ctx.assertEqual(fragments.root, true, '13 片段导入后面板仍在（没崩）');
       ctx.assertIncludes(fragments.user, FRAGMENTS.question, 'fragments 包提问文本可见');
       ctx.assertIncludes(fragments.bot, FRAGMENTS.answer, 'fragments 包第一个回答版本可见');
       ctx.assertEqual(fragments.errorNotices, 0, '13 片段导入没有错误提示条');
-      ctx.log('13 片段导入无异常；思考区 ' + fragments.thinking + ' 个 · 步骤 ' + fragments.steps + ' 个');
+
+      let pager = await h.readPager(ctx, '.dsc-botFoot .dsc-versions');
+      ctx.assert(pager, '导入后回答下方出现 .dsc-botFoot .dsc-versions pager');
+      ctx.assertEqual(pager.arrows.length, 2, '回答 pager 有左右两个箭头');
+      ctx.assertMatch(pager.label, /^1\s*\/\s*2$/,
+        '默认显示 current_message_id 指向的第一个回答（1 / 2），实际 ' + pager.label);
+      await h.clickPagerArrow(ctx, '.dsc-botFoot .dsc-versions', 1);
+      await s.waitFor((pagerLabel) => {
+        const node = document.querySelector('.dsc-botFoot .dsc-versions .dsc-versionLabel');
+        const body = document.querySelector('.dsc-botBody');
+        return node && (node.innerText || '').trim() === pagerLabel
+          && body && (body.innerText || '').indexOf('第二个回答版本') >= 0;
+      }, { timeout: 10000, label: '切到第二个回答版本（2 / 2）' }, ['2 / 2']);
+      pager = await h.readPager(ctx, '.dsc-botFoot .dsc-versions');
+      ctx.assertMatch(pager.label, /^2\s*\/\s*2$/, '切换后回答 pager 是 2 / 2');
+      ctx.assertIncludes(await threadText().then(item => item.bot), '第二个回答版本（同父兄弟节点）',
+        '第二个回答版本可以切换出来');
+      ctx.log('分支保留：默认 ' + answerSiblings.length + ' 个回答兄弟节点可切换，思考区 '
+        + fragments.thinking + ' 个 · 步骤 ' + fragments.steps + ' 个');
       await s.shot('official-import-fragments');
 
       // 4. Restore the user snapshot and prove the data came back.
