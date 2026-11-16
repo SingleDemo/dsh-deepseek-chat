@@ -3,3 +3,5 @@ build/
 src/generated/
 scripts/e2e/fixtures/fixtures/
 docs/e2e/snapshots/
+# e2e evidence is generated locally; screenshots show the author's own desktop
+docs/e2e/*.png

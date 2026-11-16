@@ -175,7 +175,7 @@ async function openAndInspect(ctx, title, label) {
 async function main() {
   if (!fs.existsSync(ZIP)) throw new Error('ZIP 不存在: ' + ZIP);
   const started = Date.now();
-  const report = { zip: ZIP, profile: process.env.DSH_E2E_PROFILE || '%TEMP%\dsh-e2e-profile' };
+  const report = { zip: ZIP, profile: process.env.DSH_E2E_PROFILE || require('node:path').join(require('node:os').tmpdir(), 'dsh-e2e-profile') };
 
   log('== 静态分析 ==');
   const meta = analyze(ZIP);

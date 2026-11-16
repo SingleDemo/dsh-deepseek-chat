@@ -37,9 +37,9 @@ const CDP_PORT = Number(process.env.DSH_E2E_CDP_PORT || 9224);
 const CHROME = process.env.DSH_E2E_CHROME
   || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const PROFILE_DIR = process.env.DSH_E2E_PROFILE
-  || '%TEMP%\dsh-e2e-profile';
+  || path.join(os.tmpdir(), 'dsh-e2e-profile');
 const CREDENTIALS = process.env.DSH_E2E_CREDENTIALS
-  || '~/.dsh/.credentials.yaml';
+  || path.join(os.homedir(), '.dsh', '.credentials.yaml');
 
 const SETTINGS_KEY = 'dsh.deepseekChat.settings.v1';
 const CONVERSATIONS_KEY = 'dsh.deepseekChat.conversations.v1';
