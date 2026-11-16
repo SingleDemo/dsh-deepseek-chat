@@ -15,8 +15,12 @@ export const openSettings = (section: SettingsSection) =>
 
 export const closeSettings = () => useSettingsDialog.setState({ open: false })
 
-/** 没有 API Key 时打开设置并选中 API Key 所在的「数据管理」，返回是否已有 Key */
+/** 没有可用凭据时打开设置并选中「数据管理」，返回是否已能发起请求 */
 export const ensureApiKey = () => {
+  // 插件改动：账号登录模式下不再要求手填 Key，登录状态由设置里的账号行展示。
+  if (useSettings.getState().authMode === 'account') {
+    return true
+  }
   if (useSettings.getState().apiKey) {
     return true
   }

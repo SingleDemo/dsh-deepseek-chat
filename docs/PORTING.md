@@ -77,6 +77,31 @@ Kept deliberately small, and listed here so an upstream sync can reapply them:
 | `components/settings/SettingsDialog.tsx` | 思考强度 and API 地址 rows |
 | `i18n/zh.ts`, `i18n/en.ts` | five new strings each |
 
+## Account login instead of an API key
+
+The plugin can use the Harness's own DeepSeek account sign-in, so a signed-in
+user needs no API key. Verified end to end:
+
+1. `DeepSeekAccount.resolveToken(url)` returns the grant token only for the
+   configured inference origin (`https://api.deepseek.com` by default).
+2. `POST /anthropic/v1/messages` accepts that token in `x-dsh-auth-token`
+   (verified: HTTP 200), so the existing transport needed no proxy.
+3. The Host half (`index.js`) serves `/plugins/dsh-deepseek-chat/account-token`
+   as a loopback-only, `no-store` route; the browser half caches it for ten
+   minutes and refetches once on a 401.
+4. Settings → 数据管理 → 登录方式 offers DeepSeek 账号（默认）or a manual API key;
+   in account mode the demo's "enter your API key" prompt is skipped.
+
+| File | Patch |
+| --- | --- |
+| `index.js` | Host route resolving the account token through the account service |
+| `src/plugin/account-auth.ts` | New: token cache, refresh, `x-dsh-auth-token` headers |
+| `services/api/client.ts` | Auth headers per request, account-mode `verifyApiKey`, 401 retry |
+| `services/settings.ts` | `authMode` setting and storage key |
+| `components/settings/SettingsDialog.tsx` | 登录方式 row with live sign-in state |
+| `components/settings/settingsDialogState.ts` | No key prompt in account mode |
+| `i18n/zh.ts`, `i18n/en.ts` | Seven new strings each |
+
 ## Verified end to end
 
 A real request through the ported app returns a streamed answer with markdown

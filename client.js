@@ -774,7 +774,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/settings.ts
-    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort;
+    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode;
     var init_settings = __esm({
       "vendor/chat-demo/src/services/settings.ts"() {
         init_react_shim();
@@ -790,7 +790,8 @@ window.__ModuleLoader__.load({
           search: "chat-demo:search",
           siderCollapsed: "chat-demo:sider-collapsed",
           apiBaseUrl: "chat-demo:api-base-url",
-          thinkingEffort: "chat-demo:thinking-effort"
+          thinkingEffort: "chat-demo:thinking-effort",
+          authMode: "chat-demo:auth-mode"
         };
         read = (key) => {
           try {
@@ -843,7 +844,8 @@ window.__ModuleLoader__.load({
           search: read(KEYS.search) === "true",
           siderCollapsed: read(KEYS.siderCollapsed) === "true",
           apiBaseUrl: read(KEYS.apiBaseUrl) || null,
-          thinkingEffort: read(KEYS.thinkingEffort) === "low" || read(KEYS.thinkingEffort) === "max" ? read(KEYS.thinkingEffort) : "high"
+          thinkingEffort: read(KEYS.thinkingEffort) === "low" || read(KEYS.thinkingEffort) === "max" ? read(KEYS.thinkingEffort) : "high",
+          authMode: read(KEYS.authMode) === "key" ? "key" : "account"
         }));
         setLocale = (locale) => {
           write(KEYS.locale, locale);
@@ -885,6 +887,10 @@ window.__ModuleLoader__.load({
         setThinkingEffort = (thinkingEffort) => {
           write(KEYS.thinkingEffort, thinkingEffort);
           useSettings2.setState({ thinkingEffort });
+        };
+        setAuthMode = (authMode) => {
+          write(KEYS.authMode, authMode);
+          useSettings2.setState({ authMode });
         };
       }
     });
@@ -1070,7 +1076,15 @@ window.__ModuleLoader__.load({
           settingsThinkingEffortHigh: "High",
           settingsThinkingEffortMax: "Max",
           settingsApiBaseUrl: "API base URL",
-          settingsApiBaseUrlPlaceholder: "Leave empty to use the default"
+          settingsApiBaseUrlPlaceholder: "Leave empty to use the default",
+          settingsAuthMode: "Sign-in method",
+          authModeAccount: "DeepSeek account (recommended)",
+          authModeKey: "API key",
+          authModeKeyHint: "Requests use the API key you entered",
+          authStatusSignedIn: "Signed in \u2014 no API key needed",
+          authStatusChecking: "Checking sign-in state\u2026",
+          authStatusSignedOut: "Signed out: sign in to DeepSeek in the Harness account settings",
+          authStatusUnavailable: "No account service here; use an API key instead"
         };
       }
     });
@@ -1256,7 +1270,15 @@ window.__ModuleLoader__.load({
           settingsThinkingEffortHigh: "\u9AD8",
           settingsThinkingEffortMax: "\u6700\u9AD8",
           settingsApiBaseUrl: "API \u5730\u5740",
-          settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740"
+          settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740",
+          settingsAuthMode: "\u767B\u5F55\u65B9\u5F0F",
+          authModeAccount: "DeepSeek \u8D26\u53F7\uFF08\u63A8\u8350\uFF09",
+          authModeKey: "\u624B\u52A8 API Key",
+          authModeKeyHint: "\u4F7F\u7528\u4F60\u586B\u5199\u7684 API Key \u53D1\u8D77\u8BF7\u6C42",
+          authStatusSignedIn: "\u5DF2\u767B\u5F55\uFF0C\u65E0\u9700\u586B\u5199 API Key",
+          authStatusChecking: "\u6B63\u5728\u68C0\u67E5\u767B\u5F55\u72B6\u6001\u2026",
+          authStatusSignedOut: "\u672A\u767B\u5F55\uFF1A\u8BF7\u5728 Harness \u7684\u8D26\u53F7\u8BBE\u7F6E\u91CC\u767B\u5F55 DeepSeek",
+          authStatusUnavailable: "\u5F53\u524D\u73AF\u5883\u6CA1\u6709\u8D26\u53F7\u670D\u52A1\uFF0C\u8BF7\u6539\u7528 API Key"
         };
       }
     });
@@ -1386,6 +1408,57 @@ window.__ModuleLoader__.load({
       "vendor/chat-demo/src/utils/id.ts"() {
         init_react_shim();
         createId = () => typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      }
+    });
+    
+    // vendor/chat-demo/src/plugin/account-auth.ts
+    var TOKEN_ROUTE, TOKEN_TTL_MS, cached, inflight, usesAccountAuth, fetchToken, accountToken, invalidateAccountToken, accountAuthHeaders;
+    var init_account_auth = __esm({
+      "vendor/chat-demo/src/plugin/account-auth.ts"() {
+        init_react_shim();
+        init_settings();
+        TOKEN_ROUTE = "/plugins/dsh-deepseek-chat/account-token";
+        TOKEN_TTL_MS = 10 * 60 * 1e3;
+        cached = null;
+        inflight = null;
+        usesAccountAuth = () => useSettings2.getState().authMode === "account";
+        fetchToken = async (origin) => {
+          const query3 = origin ? `?origin=${encodeURIComponent(origin)}` : "";
+          try {
+            const response = await fetch(`${TOKEN_ROUTE}${query3}`, {
+              headers: { accept: "application/json" },
+              cache: "no-store"
+            });
+            if (!response.ok) return { state: "unavailable" };
+            const body = await response.json();
+            if (body.ok && typeof body.token === "string" && body.token) {
+              cached = { token: body.token, at: Date.now() };
+              return { state: "ok", token: body.token };
+            }
+            cached = null;
+            return { state: body.reason === "unavailable" ? "unavailable" : "signed-out" };
+          } catch {
+            cached = null;
+            return { state: "unavailable" };
+          }
+        };
+        accountToken = async (origin, force = false) => {
+          if (!force && cached && Date.now() - cached.at < TOKEN_TTL_MS) {
+            return { state: "ok", token: cached.token };
+          }
+          inflight ??= fetchToken(origin).finally(() => {
+            inflight = null;
+          });
+          return inflight;
+        };
+        invalidateAccountToken = () => {
+          cached = null;
+        };
+        accountAuthHeaders = async (origin) => {
+          if (!usesAccountAuth()) return {};
+          const result = await accountToken(origin);
+          return result.state === "ok" ? { "x-dsh-auth-token": result.token } : {};
+        };
       }
     });
     
@@ -1684,7 +1757,7 @@ window.__ModuleLoader__.load({
     
     // vendor/chat-demo/src/services/api/client.ts
     async function* streamMessage(apiKey, body, signal) {
-      const response = await request(`${apiBaseUrl()}/messages`, {
+      const response = await authedRequest(`${apiBaseUrl()}/messages`, {
         method: "POST",
         headers: {
           ...anthropicHeaders(apiKey, hasFile(body)),
@@ -1724,12 +1797,13 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, apiBaseUrl, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, anthropicHeaders, verifyApiKey, uploadFile, hasFile;
+    var API_ORIGIN, apiBaseUrl, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, verifyApiKey, uploadFile, hasFile;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
         init_i18n();
         init_settings();
+        init_account_auth();
         init_parseEvent();
         init_sse();
         API_ORIGIN = "https://api.deepseek.com";
@@ -1776,16 +1850,40 @@ window.__ModuleLoader__.load({
           }
           return response;
         };
+        inferenceOrigin = () => {
+          try {
+            return new URL(apiBaseUrl()).origin;
+          } catch {
+            return API_ORIGIN;
+          }
+        };
         anthropicHeaders = (apiKey, beta) => ({
           // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-          "x-api-key": apiKey,
+          ...usesAccountAuth() ? {} : { "x-api-key": apiKey },
           // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
           ...beta ? { "anthropic-beta": FILES_BETA } : {}
         });
+        authedRequest = async (url, init) => {
+          const origin = inferenceOrigin();
+          const once = async () => request(url, {
+            ...init,
+            headers: { ...init.headers, ...await accountAuthHeaders(origin) }
+          });
+          try {
+            return await once();
+          } catch (error) {
+            if (usesAccountAuth() && error instanceof ApiError && error.status === 401) {
+              invalidateAccountToken();
+              return once();
+            }
+            throw error;
+          }
+        };
         verifyApiKey = async (apiKey, signal) => {
+          const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {};
           await request(`${API_ORIGIN}/models`, {
             method: "GET",
-            headers: { Authorization: `Bearer ${apiKey}` },
+            headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${apiKey}` },
             signal
           });
         };
@@ -1795,7 +1893,7 @@ window.__ModuleLoader__.load({
             form.append("purpose", purpose);
           }
           form.append("file", file);
-          const response = await request(`${apiBaseUrl()}/files`, {
+          const response = await authedRequest(`${apiBaseUrl()}/files`, {
             method: "POST",
             headers: anthropicHeaders(apiKey, true),
             body: form,
@@ -3095,10 +3193,10 @@ window.__ModuleLoader__.load({
             const cachedIds = previous5.get(ids[0])?.ids;
             const stableIds = cachedIds?.length === ids.length && ids.every((id, index2) => id === cachedIds[index2]) ? cachedIds : ids;
             ids.forEach((id, index2) => {
-              const cached = previous5.get(id);
-              const version2 = cached?.ids === stableIds && cached.index === index2 ? cached : { ids: stableIds, index: index2 };
+              const cached2 = previous5.get(id);
+              const version2 = cached2?.ids === stableIds && cached2.index === index2 ? cached2 : { ids: stableIds, index: index2 };
               versions.set(id, version2);
-              if (version2 !== cached) {
+              if (version2 !== cached2) {
                 unchanged = false;
               }
             });
@@ -6050,6 +6148,9 @@ window.__ModuleLoader__.load({
         openSettings = (section) => useSettingsDialog.setState({ open: true, section });
         closeSettings = () => useSettingsDialog.setState({ open: false });
         ensureApiKey = () => {
+          if (useSettings2.getState().authMode === "account") {
+            return true;
+          }
           if (useSettings2.getState().apiKey) {
             return true;
           }
@@ -39682,7 +39783,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/components/settings/SettingsDialog.tsx
-    var import_react34, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ApiBaseUrlSetting, TtsVoiceSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
+    var import_react34, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ApiBaseUrlSetting, TtsVoiceSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
     var init_SettingsDialog = __esm({
       "vendor/chat-demo/src/components/settings/SettingsDialog.tsx"() {
         init_react_shim();
@@ -39700,6 +39801,7 @@ window.__ModuleLoader__.load({
         init_Select2();
         init_toastState();
         init_ApiKeyField();
+        init_account_auth();
         init_settingsDialogState();
         init_Settings();
         SettingsDialog = () => {
@@ -39749,7 +39851,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t("deleteAllSessions"),
@@ -39984,6 +40086,44 @@ window.__ModuleLoader__.load({
                     { value: "tide", label: t("settingsTtsVoiceTide") }
                   ],
                   onChange: setTtsVoice
+                }
+              )
+            }
+          );
+        };
+        AuthModeSetting = () => {
+          const t = useTranslate();
+          const authMode = useSettings2((state) => state.authMode);
+          const [status, setStatus] = (0, import_react34.useState)("checking");
+          (0, import_react34.useEffect)(() => {
+            if (authMode !== "account") {
+              return;
+            }
+            let cancelled = false;
+            void accountToken(void 0, true).then((result) => {
+              if (!cancelled) setStatus(result.state);
+            });
+            return () => {
+              cancelled = true;
+            };
+          }, [authMode, useSettings2((state) => state.apiBaseUrl)]);
+          const statusText = authMode !== "account" ? t("authModeKeyHint") : status === "ok" ? t("authStatusSignedIn") : status === "checking" ? t("authStatusChecking") : status === "signed-out" ? t("authStatusSignedOut") : t("authStatusUnavailable");
+          return /* @__PURE__ */ React.createElement(
+            SettingCell,
+            {
+              label: t("settingsAuthMode"),
+              description: statusText,
+              status: null,
+              action: /* @__PURE__ */ React.createElement(
+                Select,
+                {
+                  ariaLabel: t("settingsAuthMode"),
+                  value: authMode,
+                  options: [
+                    { value: "account", label: t("authModeAccount") },
+                    { value: "key", label: t("authModeKey") }
+                  ],
+                  onChange: (value) => setAuthMode(value === "key" ? "key" : "account")
                 }
               )
             }

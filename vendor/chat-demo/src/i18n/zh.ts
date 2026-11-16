@@ -180,4 +180,12 @@ export const zh = {
   settingsThinkingEffortMax: '最高',
   settingsApiBaseUrl: 'API 地址',
   settingsApiBaseUrlPlaceholder: '留空使用默认地址',
+  settingsAuthMode: '登录方式',
+  authModeAccount: 'DeepSeek 账号（推荐）',
+  authModeKey: '手动 API Key',
+  authModeKeyHint: '使用你填写的 API Key 发起请求',
+  authStatusSignedIn: '已登录，无需填写 API Key',
+  authStatusChecking: '正在检查登录状态…',
+  authStatusSignedOut: '未登录：请在 Harness 的账号设置里登录 DeepSeek',
+  authStatusUnavailable: '当前环境没有账号服务，请改用 API Key',
 } as const

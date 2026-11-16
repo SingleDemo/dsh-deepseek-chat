@@ -26,6 +26,7 @@ import {
   setTtsVoice,
   setApiBaseUrl,
   setThinkingEffort,
+  setAuthMode,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -35,6 +36,7 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
+import { accountToken } from '../../plugin/account-auth.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
@@ -107,6 +109,7 @@ const SettingsContent = () => {
             </>
           ) : (
             <>
+              <AuthModeSetting />
               <ApiKeyField editor={apiKeyEditor} />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
@@ -367,6 +370,53 @@ const TtsVoiceSetting = () => {
             { value: 'tide', label: t('settingsTtsVoiceTide') },
           ]}
           onChange={setTtsVoice}
+        />
+      }
+    />
+  )
+}
+
+/** 插件改动：账号登录（免 API Key）与手填 Key 二选一，并显示登录状态 */
+const AuthModeSetting = () => {
+  const t = useTranslate()
+  const authMode = useSettings((state) => state.authMode)
+  const [status, setStatus] = useState<'checking' | 'ok' | 'signed-out' | 'unavailable'>('checking')
+  useEffect(() => {
+    if (authMode !== 'account') {
+      return
+    }
+    let cancelled = false
+    void accountToken(undefined, true).then((result) => {
+      if (!cancelled) setStatus(result.state)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [authMode, useSettings((state) => state.apiBaseUrl)])
+  const statusText =
+    authMode !== 'account'
+      ? t('authModeKeyHint')
+      : status === 'ok'
+        ? t('authStatusSignedIn')
+        : status === 'checking'
+          ? t('authStatusChecking')
+          : status === 'signed-out'
+            ? t('authStatusSignedOut')
+            : t('authStatusUnavailable')
+  return (
+    <SettingCell
+      label={t('settingsAuthMode')}
+      description={statusText}
+      status={null}
+      action={
+        <Select
+          ariaLabel={t('settingsAuthMode')}
+          value={authMode}
+          options={[
+            { value: 'account', label: t('authModeAccount') },
+            { value: 'key', label: t('authModeKey') },
+          ]}
+          onChange={(value) => setAuthMode(value === 'key' ? 'key' : 'account')}
         />
       }
     />

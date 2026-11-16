@@ -23,6 +23,8 @@ type Settings = {
   apiBaseUrl: string | null
   /** 深度思考的推理强度（插件额外能力） */
   thinkingEffort: ThinkingEffort
+  /** 插件额外能力：账号登录（默认）或手填 API Key */
+  authMode: 'account' | 'key'
 }
 
 const KEYS = {
@@ -36,6 +38,7 @@ const KEYS = {
   siderCollapsed: 'chat-demo:sider-collapsed',
   apiBaseUrl: 'chat-demo:api-base-url',
   thinkingEffort: 'chat-demo:thinking-effort',
+  authMode: 'chat-demo:auth-mode',
 } as const
 
 const read = (key: string) => {
@@ -109,6 +112,7 @@ export const useSettings = create<Settings>(() => ({
     read(KEYS.thinkingEffort) === 'low' || read(KEYS.thinkingEffort) === 'max'
       ? (read(KEYS.thinkingEffort) as ThinkingEffort)
       : 'high',
+  authMode: read(KEYS.authMode) === 'key' ? 'key' : 'account',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -160,4 +164,9 @@ export const setApiBaseUrl = (apiBaseUrl: string | null) => {
 export const setThinkingEffort = (thinkingEffort: ThinkingEffort) => {
   write(KEYS.thinkingEffort, thinkingEffort)
   useSettings.setState({ thinkingEffort })
+}
+
+export const setAuthMode = (authMode: 'account' | 'key') => {
+  write(KEYS.authMode, authMode)
+  useSettings.setState({ authMode })
 }

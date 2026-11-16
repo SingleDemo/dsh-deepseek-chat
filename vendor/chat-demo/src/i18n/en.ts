@@ -188,4 +188,12 @@ export const en = {
   settingsThinkingEffortMax: 'Max',
   settingsApiBaseUrl: 'API base URL',
   settingsApiBaseUrlPlaceholder: 'Leave empty to use the default',
+  settingsAuthMode: 'Sign-in method',
+  authModeAccount: 'DeepSeek account (recommended)',
+  authModeKey: 'API key',
+  authModeKeyHint: 'Requests use the API key you entered',
+  authStatusSignedIn: 'Signed in — no API key needed',
+  authStatusChecking: 'Checking sign-in state…',
+  authStatusSignedOut: 'Signed out: sign in to DeepSeek in the Harness account settings',
+  authStatusUnavailable: 'No account service here; use an API key instead',
 } satisfies Record<keyof typeof zh, string>

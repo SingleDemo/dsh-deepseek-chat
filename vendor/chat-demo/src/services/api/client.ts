@@ -1,5 +1,6 @@
 import { translate, type TranslationMessage } from '../../i18n/index.js'
 import { useSettings } from '../settings.js'
+import { accountAuthHeaders, invalidateAccountToken, usesAccountAuth } from '../../plugin/account-auth.js'
 import { readMessageEvent } from './parseEvent.js'
 import { readServerSentEvents } from './sse.js'
 import type {
@@ -86,18 +87,54 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
+/** 账号登录态的默认推理源，账号服务据此判断 token 是否可用 */
+const inferenceOrigin = (): string => {
+  try {
+    return new URL(apiBaseUrl()).origin
+  } catch {
+    return API_ORIGIN
+  }
+}
+
 const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
   // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-  'x-api-key': apiKey,
+  ...(usesAccountAuth() ? {} : { 'x-api-key': apiKey }),
   // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
   ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
 })
 
-/** 用 GET /models 校验 API Key（不产生费用） */
+/**
+ * 插件改动：账号登录时附加 x-dsh-auth-token；被拒（401）时刷新一次 token 再重试。
+ * 手填 API Key 的路径与此前完全一致。
+ */
+const authedRequest = async (url: string, init: RequestInit): Promise<Response> => {
+  const origin = inferenceOrigin()
+  const once = async () => request(url, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string>), ...(await accountAuthHeaders(origin)) },
+  })
+  try {
+    return await once()
+  } catch (error) {
+    if (usesAccountAuth() && error instanceof ApiError && error.status === 401) {
+      invalidateAccountToken()
+      return once()
+    }
+    throw error
+  }
+}
+
+/**
+ * 用 GET /models 校验凭据（不产生费用）。
+ * 插件改动：账号登录时校验账号 token，手填 Key 时沿用 Bearer。
+ */
 export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promise<void> => {
+  const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {}
   await request(`${API_ORIGIN}/models`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: 'x-dsh-auth-token' in account
+      ? account
+      : { Authorization: `Bearer ${apiKey}` },
     signal,
   })
 }
@@ -117,7 +154,7 @@ export const uploadFile = async (
     form.append('purpose', purpose)
   }
   form.append('file', file)
-  const response = await request(`${apiBaseUrl()}/files`, {
+  const response = await authedRequest(`${apiBaseUrl()}/files`, {
     method: 'POST',
     headers: anthropicHeaders(apiKey, true),
     body: form,
@@ -128,7 +165,7 @@ export const uploadFile = async (
 
 /** DELETE /anthropic/v1/files/{file_id} */
 export const deleteFile = async (apiKey: string, fileId: string): Promise<void> => {
-  await request(`${apiBaseUrl()}/files/${encodeURIComponent(fileId)}`, {
+  await authedRequest(`${apiBaseUrl()}/files/${encodeURIComponent(fileId)}`, {
     method: 'DELETE',
     headers: anthropicHeaders(apiKey, true),
   })
@@ -150,7 +187,7 @@ export async function* streamMessage(
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
-  const response = await request(`${apiBaseUrl()}/messages`, {
+  const response = await authedRequest(`${apiBaseUrl()}/messages`, {
     method: 'POST',
     headers: {
       ...anthropicHeaders(apiKey, hasFile(body)),
