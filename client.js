@@ -191,6 +191,22 @@ window.__ModuleLoader__.load({
       speechHint: 'Voice input and read-aloud use your API key and appear on your bill.',
       settingsConnection: 'Connection',
       settingsSpeech: 'Speech',
+      settingsData: 'Data',
+      exportLabel: 'Export all conversations',
+      exportDesc: 'Writes a JSON backup of every conversation. The API key is never included.',
+      exportDownload: 'Download',
+      importLabel: 'Import conversations',
+      importDesc: 'Replaces every conversation in this browser with the file you pick.',
+      importSelect: 'Choose file',
+      importConfirmTitle: 'Import these conversations?',
+      importConfirmBody: 'Importing overwrites every conversation stored in this browser.',
+      importDone: 'Imported {count} conversations',
+      importJson: 'That file is not valid JSON',
+      importFormat: 'That file was not exported by this plugin',
+      importNewer: 'The file is newer than this plugin; update it first',
+      importIncomplete: 'The file is incomplete and cannot be imported',
+      importEmpty: 'The file has no conversations',
+      deleteAllDesc: 'Every conversation is removed for good.',
     };
 
     const zh = {
@@ -330,6 +346,22 @@ window.__ModuleLoader__.load({
       speechHint: '语音输入与朗读使用你的 API Key，会产生相应费用。',
       settingsConnection: '连接',
       settingsSpeech: '语音',
+      settingsData: '数据管理',
+      exportLabel: '导出所有历史对话',
+      exportDesc: '导出为 JSON 备份，包含全部对话；不会包含 API Key。',
+      exportDownload: '下载',
+      importLabel: '导入历史对话',
+      importDesc: '用所选文件覆盖本浏览器里的全部对话。',
+      importSelect: '选择文件',
+      importConfirmTitle: '确认导入历史对话？',
+      importConfirmBody: '导入会覆盖当前所有对话记录，是否确认导入？',
+      importDone: '已导入 {count} 个对话',
+      importJson: '文件不是有效的 JSON',
+      importFormat: '这不是本插件导出的备份文件',
+      importNewer: '文件版本过新，请升级后再导入',
+      importIncomplete: '文件内容不完整，无法导入',
+      importEmpty: '文件里没有对话',
+      deleteAllDesc: '删除后，所有对话都将被清空且无法找回。',
     };
 
     /* ----------------------------------------------------------------- utils */
@@ -364,6 +396,79 @@ window.__ModuleLoader__.load({
       } catch (error) {
         return false;
       }
+    }
+
+    /* ------------------------------------------------------------- data mgmt */
+
+    const BACKUP_FORMAT = 'dsh-chat-backup';
+    const BACKUP_VERSION = 1;
+
+    /** Settings safe to export: never the API key. */
+    function exportableSettings(settings) {
+      return {
+        baseUrl: settings.baseUrl,
+        model: settings.model,
+        thinking: settings.thinking,
+        webSearch: settings.webSearch,
+        voice: settings.voice,
+        location: settings.location || '',
+      };
+    }
+
+    /** The backup object written to disk. */
+    function buildBackup(conversations, settings) {
+      return {
+        format: BACKUP_FORMAT,
+        version: BACKUP_VERSION,
+        exportedAt: new Date().toISOString(),
+        settings: exportableSettings(settings),
+        conversations,
+      };
+    }
+
+    /** Backup file name, `dsh-chat-backup-YYYY-MM-DD-HHmm.json`. */
+    function backupFileName(now) {
+      const pad = (value) => (value < 10 ? '0' + value : String(value));
+      return 'dsh-chat-backup-' + now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())
+        + '-' + pad(now.getHours()) + pad(now.getMinutes()) + '.json';
+    }
+
+    /** Trigger a download for one JSON payload. */
+    function downloadJson(name, data) {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+    }
+
+    /**
+     * Validate and normalize one backup payload.
+     * @returns `{ ok: true, conversations }` or `{ ok: false, reason }` where
+     * reason is one of json / newer / incomplete / empty.
+     */
+    function parseBackup(text) {
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (error) {
+        return { ok: false, reason: 'json' };
+      }
+      if (!payload || typeof payload !== 'object' || payload.format !== BACKUP_FORMAT) {
+        return { ok: false, reason: 'format' };
+      }
+      if (typeof payload.version !== 'number') return { ok: false, reason: 'incomplete' };
+      if (payload.version > BACKUP_VERSION) return { ok: false, reason: 'newer' };
+      if (!Array.isArray(payload.conversations)) return { ok: false, reason: 'incomplete' };
+      // Reuse the loader's sanitizers so a broken file cannot blank the panel.
+      const stored = JSON.stringify(payload.conversations);
+      const conversations = sanitizeConversations(JSON.parse(stored));
+      if (!conversations.length) return { ok: false, reason: 'empty' };
+      return { ok: true, conversations, settings: payload.settings || null };
     }
 
     /** Stored settings, tolerant of older or partial payloads. */
@@ -475,6 +580,11 @@ window.__ModuleLoader__.load({
       return out;
     }
 
+    /** Conversations read from localStorage, sanitized by the loader above. */
+    function loadConversations() {
+      return sanitizeConversations(readJson(CONVERSATIONS_KEY, []));
+    }
+
     /** Group conversations the way the demo's rail does: today, yesterday, 7 days, 30 days. */
     function groupConversations(list, t) {
       const now = new Date();
@@ -500,9 +610,8 @@ window.__ModuleLoader__.load({
       return groups.filter((group) => group.items.length);
     }
 
-    /** Stored conversations, dropping anything that cannot render. */
-    function loadConversations() {
-      const stored = readJson(CONVERSATIONS_KEY, []);
+    /** Normalize stored conversations, dropping anything that cannot render. */
+    function sanitizeConversations(stored) {
       if (!Array.isArray(stored)) return [];
       const list = [];
       for (let i = 0; i < stored.length; i += 1) {
@@ -2898,6 +3007,16 @@ h3.dsc-mdHeading { font-size: 15px; }
 .dsc-keyOk { color: var(--dsw-alias-state-success-primary); font-size: 12px; }
 .dsc-keyBad { color: var(--dsw-alias-state-error-primary); font-size: 12px; }
 .dsc-fieldHint { margin-top: 5px; color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dsc-dataRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+.dsc-dataText { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.dsc-dataLabel { font-size: 12.5px; }
+.dsc-dataHint { color: var(--dsw-alias-label-secondary); font-size: 11.5px; line-height: 1.45; }
 .dsc-dialogFoot { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
 .dsc-dialogFoot .dsc-spacer { flex: 1; }
 .dsc-button {
@@ -3981,7 +4100,7 @@ h3.dsc-mdHeading { font-size: 15px; }
     }
 
     function SettingsDialog(props) {
-      const { t, settings, onSave, onClose, onClearAll } = props;
+      const { t, settings, onSave, onClose, onClearAll, onExport, onRequestImport } = props;
       const [apiKey, setApiKey] = useState(settings.apiKey);
       const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
       const [model, setModel] = useState(settings.model);
@@ -4134,7 +4253,21 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('option', { value: 'stella' }, t('voiceStella')),
               h('option', { value: 'tide' }, t('voiceTide'))),
             h('div', { className: 'dsc-fieldHint' }, t('speechHint'))),
-          h('div', { className: 'dsc-dialogFoot' },
+          h('div', { className: 'dsc-sectionTitle' }, t('settingsData')),
+          h('div', { className: 'dsc-dataRow' },
+            h('div', { className: 'dsc-dataText' },
+              h('span', { className: 'dsc-dataLabel' }, t('exportLabel')),
+              h('span', { className: 'dsc-dataHint' }, t('exportDesc'))),
+            h('button', { type: 'button', className: 'dsc-button', onClick: onExport }, t('exportDownload'))),
+          h('div', { className: 'dsc-dataRow' },
+            h('div', { className: 'dsc-dataText' },
+              h('span', { className: 'dsc-dataLabel' }, t('importLabel')),
+              h('span', { className: 'dsc-dataHint' }, t('importDesc'))),
+            h('button', { type: 'button', className: 'dsc-button', onClick: onRequestImport }, t('importSelect'))),
+          h('div', { className: 'dsc-dataRow' },
+            h('div', { className: 'dsc-dataText' },
+              h('span', { className: 'dsc-dataLabel' }, t('clearAll')),
+              h('span', { className: 'dsc-dataHint' }, t('deleteAllDesc'))),
             h('button', {
               type: 'button',
               className: 'dsc-button',
@@ -4147,7 +4280,8 @@ h3.dsc-mdHeading { font-size: 15px; }
                 setConfirming(false);
                 onClearAll();
               },
-            }, confirming ? t('clearConfirm') : t('clearAll')),
+            }, confirming ? t('clearConfirm') : t('clearAll'))),
+          h('div', { className: 'dsc-dialogFoot' },
             h('span', { className: 'dsc-spacer' }),
             h('button', { type: 'button', className: 'dsc-button', onClick: onClose }, t('cancel')),
             h('button', { type: 'button', className: 'dsc-button', 'data-primary': 'true', onClick: submit }, t('save')))));
@@ -4182,6 +4316,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [dragging, setDragging] = useState(false);
       const [drawerId, setDrawerId] = useState(null);
       const [pendingDelete, setPendingDelete] = useState(null);
+      const [pendingImport, setPendingImport] = useState(null);
       const [editing, setEditing] = useState(null);
       const [ttsId, setTtsId] = useState(null);
       const [ttsPendingId, setTtsPendingId] = useState(null);
@@ -4193,6 +4328,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const recRef = useRef(null);
       const ttsRef = useRef(null);
       const fileRef = useRef(null);
+      const importRef = useRef(null);
       const thinkWrapRef = useRef(null);
       const dragDepthRef = useRef(0);
       const narrow = useMediaQuery('(max-width: 760px)');
@@ -4880,6 +5016,32 @@ h3.dsc-mdHeading { font-size: 15px; }
         setNotice('');
       }, [t]);
 
+      /** Download every conversation as a JSON backup. */
+      const exportBackup = useCallback(() => {
+        downloadJson(backupFileName(new Date()), buildBackup(conversations, settings));
+        setNotice(t('exportDownload') + ' · ' + conversations.length);
+      }, [conversations, settings, t]);
+
+      /** Import a picked backup after confirmation. */
+      const importBackup = useCallback((text) => {
+        const result = parseBackup(text);
+        if (!result.ok) {
+          setNotice(t('import' + result.reason.charAt(0).toUpperCase() + result.reason.slice(1)));
+          return;
+        }
+        if (abortRef.current) abortRef.current.abort();
+        const list = sortConversations(result.conversations);
+        if (!writeJson(CONVERSATIONS_KEY, list)) {
+          setNotice(t('importIncomplete'));
+          return;
+        }
+        setConversations(list);
+        setActiveId(list.length ? list[0].id : null);
+        setDrawerId(null);
+        setEditing(null);
+        setNotice(t('importDone').replace('{count}', String(list.length)));
+      }, [t]);
+
       const clearAll = useCallback(() => {
         if (abortRef.current) abortRef.current.abort();
         setConversations([]);
@@ -5221,6 +5383,35 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('span', { className: 'dsc-dropTitle' }, t('dropHere')),
               h('span', { className: 'dsc-dropHint' }, t('attachHint').replace('{count}', String(MAX_ATTACHMENTS)).replace('{size}', String(MAX_FILE_MB)))))
           : null,
+        h('input', {
+          ref: importRef,
+          type: 'file',
+          accept: 'application/json,.json',
+          style: { display: 'none' },
+          onChange: (event) => {
+            const file = event.target.files && event.target.files[0];
+            event.target.value = '';
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = () => setPendingImport(String(reader.result || ''));
+            reader.onerror = () => setNotice(t('importJson'));
+            reader.readAsText(file);
+          },
+        }),
+        pendingImport
+          ? h(ConfirmDialog, {
+            title: t('importConfirmTitle'),
+            body: t('importConfirmBody'),
+            confirmLabel: t('importSelect'),
+            t,
+            onCancel: () => setPendingImport(null),
+            onConfirm: () => {
+              importBackup(pendingImport);
+              setPendingImport(null);
+              setSettingsOpen(false);
+            },
+          })
+          : null,
         pendingDelete
           ? h(ConfirmDialog, {
             title: t('deleteTitle'),
@@ -5241,6 +5432,11 @@ h3.dsc-mdHeading { font-size: 15px; }
             onSave: saveSettings,
             onClose: () => setSettingsOpen(false),
             onClearAll: clearAll,
+            onExport: exportBackup,
+            onRequestImport: () => {
+              const node = importRef.current;
+              if (node) node.click();
+            },
           })
           : null);
     }
