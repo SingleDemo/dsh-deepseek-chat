@@ -29,7 +29,8 @@ const USAGE = [
   '',
   '可选参数:',
   '  --check-timeout <ms>   单项检查超时，默认 ' + DEFAULT_CHECK_TIMEOUT,
-  '  --no-shot              失败时不补截图（默认总会写 docs/e2e/<name>.png）',
+  '  --fresh-profile        冷启动 profile 并在结束后删除（密钥不在磁盘留存）',
+  '  --no-shot              不自动补截图（检查项自己写的仍保留）',
   '  -h, --help             显示本帮助',
 ].join('\n');
 
@@ -64,12 +65,13 @@ function loadChecks() {
 /* ------------------------------------------------------------------- args */
 
 function parseArgs(argv) {
-  const options = { list: false, help: false, only: [], checkTimeout: DEFAULT_CHECK_TIMEOUT, shot: true };
+  const options = { list: false, help: false, only: [], checkTimeout: DEFAULT_CHECK_TIMEOUT, shot: true, freshProfile: false };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--list') { options.list = true; continue; }
     if (arg === '-h' || arg === '--help') { options.help = true; continue; }
     if (arg === '--no-shot') { options.shot = false; continue; }
+    if (arg === '--fresh-profile') { options.freshProfile = true; continue; }
     if (arg === '--check-timeout') {
       const value = Number(argv[index + 1]);
       if (!Number.isFinite(value) || value <= 0) throw new Error('--check-timeout 需要毫秒数');
@@ -235,7 +237,11 @@ async function main() {
   });
 
   try {
-    session = await openPage({ width: 1440, height: 900 });
+    session = await openPage({
+      width: 1440,
+      height: 900,
+      freshProfile: options.freshProfile,
+    });
     for (let index = 0; index < selected.length; index += 1) {
       const check = selected[index];
       const cost = check.cost === 'api' ? '（会消耗一次真实 API 调用）' : '';

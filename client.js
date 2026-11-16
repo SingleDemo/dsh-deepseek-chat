@@ -87,7 +87,7 @@ window.__ModuleLoader__.load({
       stopGenerating: 'Stop generating',
       regenerate: 'Regenerate',
       editMessage: 'Edit message',
-      editingMessage: 'Editing this message — sending replaces it and the replies after it',
+      editingMessage: 'Editing this message — sending replaces it and deletes the replies after it',
       cancelEdit: 'Cancel',
       continueGenerating: 'Continue generating',
       copy: 'Copy',
@@ -111,6 +111,11 @@ window.__ModuleLoader__.load({
       topUp: 'Top up',
       retry: 'Retry',
       previousVersion: 'Previous version',
+      mermaidDiagram: 'Chart',
+      mermaidCode: 'Code',
+      mermaidLoading: 'Rendering the chart…',
+      mermaidRenderFail: 'Could not render this chart',
+      mermaidSwitchLabel: 'Switch between chart and code',
       nextVersion: 'Next version',
       caveat: 'AI-generated, for reference only',
       noticeNetwork: 'Network problem. Check your connection and try again.',
@@ -147,6 +152,12 @@ window.__ModuleLoader__.load({
       searchNoResult: 'No results for this search',
       close: 'Close',
       voiceInput: 'Voice input',
+      voiceInputTimer: 'Recording {seconds}s',
+      voiceInputStop: 'Stop and transcribe',
+      voiceInputCancel: 'Transcribing… tap to cancel',
+      settingsLocation: 'Location',
+      settingsLocationPlaceholder: 'e.g. Hefei, China',
+      settingsLocationHint: 'Sent with each request so answers know your local time and place; empty is fine.',
       listening: 'Listening… tap to stop',
       transcribing: 'Transcribing…',
       recordDenied: 'Microphone access was denied',
@@ -215,7 +226,7 @@ window.__ModuleLoader__.load({
       stopGenerating: '停止生成',
       regenerate: '重新生成',
       editMessage: '编辑消息',
-      editingMessage: '正在编辑这条消息，发送后将替换它及其后的回答',
+      editingMessage: '正在编辑这条消息，发送后将替换它并删除其后的回答',
       cancelEdit: '取消',
       continueGenerating: '继续生成',
       copy: '复制',
@@ -239,6 +250,11 @@ window.__ModuleLoader__.load({
       topUp: '前往充值',
       retry: '重试',
       previousVersion: '上一个版本',
+      mermaidDiagram: '图表',
+      mermaidCode: '代码',
+      mermaidLoading: '图表生成中...',
+      mermaidRenderFail: '渲染失败',
+      mermaidSwitchLabel: 'Mermaid 图表与代码切换',
       nextVersion: '下一个版本',
       caveat: '内容由 AI 生成，请仔细甄别',
       noticeNetwork: '网络异常，请检查网络后重试。',
@@ -275,6 +291,12 @@ window.__ModuleLoader__.load({
       searchNoResult: '这次搜索没有结果',
       close: '关闭',
       voiceInput: '语音输入',
+      voiceInputTimer: '录音中 {seconds}s',
+      voiceInputStop: '结束录音并转写',
+      voiceInputCancel: '正在转写，点击取消',
+      settingsLocation: '位置信息',
+      settingsLocationPlaceholder: '例如：中国 · 安徽 · 合肥',
+      settingsLocationHint: '随每次请求发送，让回答知道你所在的位置与时区；留空也可以。',
       listening: '正在录音…点击结束',
       transcribing: '正在识别语音…',
       recordDenied: '麦克风权限被拒绝',
@@ -354,6 +376,7 @@ window.__ModuleLoader__.load({
         thinking: THINKING_LEVELS.indexOf(stored.thinking) >= 0 ? stored.thinking : 'high',
         webSearch: stored.webSearch !== false,
         voice: TTS_VOICES.indexOf(stored.voice) >= 0 ? stored.voice : 'stella',
+        location: typeof stored.location === 'string' ? stored.location : '',
       };
     }
 
@@ -559,7 +582,190 @@ window.__ModuleLoader__.load({
 
     /* ---------------------------------------------------------------- markdown */
 
-    const INLINE_PATTERN = /(!\[[^\]\n]*\]\([^)\s]+\))|(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(\[[^\]\n]*\]\([^)\s]+\))|((?:https?:\/\/)[^\s<>()]+)|(\[\d{1,2}\])/g;
+    /* ------------------------------------------------------- formulas, charts */
+
+    /** Lazily loaded vendor scripts, shared by every formula and diagram. */
+    const vendor = { katex: null, mermaid: null, katexLoading: null, mermaidLoading: null, listeners: new Set() };
+
+    function notifyVendor() {
+      vendor.listeners.forEach((listener) => {
+        try {
+          listener();
+        } catch (error) {
+          /* a stale component */
+        }
+      });
+    }
+
+    /** Load one `<script>` once; resolves with true when it became available. */
+    function loadScript(url) {
+      return new Promise((resolve) => {
+        const node = document.createElement('script');
+        node.src = url;
+        node.async = true;
+        node.onload = () => resolve(true);
+        node.onerror = () => resolve(false);
+        document.head.appendChild(node);
+      });
+    }
+
+    function ensureKatex() {
+      if (vendor.katex) return;
+      if (!vendor.katexLoading) {
+        vendor.katexLoading = (async () => {
+          if (!document.getElementById('dsc-katex-css')) {
+            const link = document.createElement('link');
+            link.id = 'dsc-katex-css';
+            link.rel = 'stylesheet';
+            link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css';
+            document.head.appendChild(link);
+          }
+          const ok = await loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js');
+          vendor.katex = ok && window.katex ? window.katex : null;
+          notifyVendor();
+        })();
+      }
+    }
+
+    function ensureMermaid() {
+      if (vendor.mermaid) return;
+      if (!vendor.mermaidLoading) {
+        vendor.mermaidLoading = (async () => {
+          const ok = await loadScript('https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js');
+          if (ok && window.mermaid) {
+            const dark = isDarkPage();
+            try {
+              window.mermaid.initialize({
+                startOnLoad: false,
+                securityLevel: 'strict',
+                theme: dark ? 'dark' : 'default',
+                fontFamily: 'inherit',
+              });
+            } catch (error) {
+              /* older builds still render */
+            }
+            vendor.mermaid = window.mermaid;
+          } else {
+            vendor.mermaid = null;
+          }
+          notifyVendor();
+        })();
+      }
+    }
+
+    /** Whether the host page is currently dark, for the mermaid theme. */
+    function isDarkPage() {
+      try {
+        const value = getComputedStyle(document.documentElement).getPropertyValue('--dsw-alias-label-primary').trim();
+        const hex = /^#([0-9a-f]{6})$/i.exec(value);
+        if (hex) {
+          const number = parseInt(hex[1], 16);
+          const r = (number >> 16) & 255;
+          const g = (number >> 8) & 255;
+          const b = number & 255;
+          return (r * 299 + g * 587 + b * 114) / 1000 > 140;
+        }
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+      } catch (error) {
+        return false;
+      }
+    }
+
+    /** Re-render a component when a vendor script finishes loading. */
+    function useVendor() {
+      const [, setTick] = useState(0);
+      useEffect(() => {
+        const listener = () => setTick((value) => value + 1);
+        vendor.listeners.add(listener);
+        return () => vendor.listeners.delete(listener);
+      }, []);
+      return vendor;
+    }
+
+    /** One formula: KaTeX when it is available, the source text otherwise. */
+    function MathSpan(props) {
+      const { tex, display } = props;
+      const libs = useVendor();
+      useEffect(() => {
+        ensureKatex();
+      }, []);
+      if (!libs.katex) {
+        return h('code', { className: 'dsc-mathRaw' }, tex);
+      }
+      let html = '';
+      try {
+        html = libs.katex.renderToString(tex, { displayMode: Boolean(display), throwOnError: false, output: 'html' });
+      } catch (error) {
+        return h('code', { className: 'dsc-mathRaw' }, tex);
+      }
+      return h('span', {
+        className: display ? 'dsc-mathBlock' : 'dsc-mathInline',
+        dangerouslySetInnerHTML: { __html: html },
+      });
+    }
+
+    /** One mermaid diagram with a 图表 / 代码 switch and its loading states. */
+    function MermaidBlock(props) {
+      const { code, t } = props;
+      const libs = useVendor();
+      const [mode, setMode] = useState('diagram');
+      const [svg, setSvg] = useState('');
+      const [error, setError] = useState('');
+      useEffect(() => {
+        ensureMermaid();
+      }, []);
+      useEffect(() => {
+        if (!libs.mermaid || !code) return undefined;
+        let cancelled = false;
+        const id = 'dsc-mermaid-' + Math.random().toString(36).slice(2);
+        Promise.resolve()
+          .then(() => libs.mermaid.render(id, code))
+          .then((result) => {
+            if (cancelled) return;
+            const markup = typeof result === 'string' ? result : result && result.svg;
+            if (markup) {
+              setSvg(markup);
+              setError('');
+            } else {
+              setError(t('mermaidRenderFail'));
+            }
+          })
+          .catch((reason) => {
+            if (cancelled) return;
+            setError(t('mermaidRenderFail'));
+            console.error('[deepseek-chat] mermaid render failed', reason);
+          });
+        return () => {
+          cancelled = true;
+        };
+      }, [libs.mermaid, code, t]);
+      const head = h('div', { className: 'dsc-codeHead' },
+        h('span', { className: 'dsc-codeLang' }, t('mermaidDiagram')),
+        h('button', {
+          type: 'button',
+          className: 'dsc-codeCopy',
+          'aria-label': t('mermaidSwitchLabel'),
+          onClick: () => setMode(mode === 'diagram' ? 'code' : 'diagram'),
+        }, mode === 'diagram' ? t('mermaidCode') : t('mermaidDiagram')));
+      if (mode === 'code') {
+        return h('div', { className: 'dsc-code' }, head,
+          h('div', { className: 'dsc-codeScroll', 'data-clipped': 'false' },
+            h('pre', { className: 'dsc-codeBody' }, h('code', null, code))));
+      }
+      let body;
+      if (!libs.mermaid) {
+        body = h('div', { className: 'dsc-mermaidState' }, t('mermaidLoading'));
+      } else if (error) {
+        body = h('div', { className: 'dsc-mermaidState' }, error);
+      } else if (!svg) {
+        body = h('div', { className: 'dsc-mermaidState' }, t('mermaidLoading'));
+      } else {
+        body = h('div', { className: 'dsc-mermaid', dangerouslySetInnerHTML: { __html: svg } });
+      }
+      return h('div', { className: 'dsc-code' }, head, body);
+    }
+
+    const INLINE_PATTERN = /(!\[[^\]\n]*\]\([^)\s]+\))|(`[^`\n]+`)|(\$\$[^$\n]+\$\$)|(\$[^\s$\n][^$\n]*?\$)|(\\\([^\n]*?\\\))|(\\\[[^\n]*?\\\])|(\*\*[^*\n]+\*\*)|(__[^_\n]+__)|(\*[^*\n]+\*)|(_[^_\n]+_)|(~~[^~\n]+~~)|(\[[^\]\n]*\]\([^)\s]+\))|((?:https?:\/\/)[^\s<>()]+)|(\[\d{1,2}\])/g;
 
     /** Build inline nodes (code, emphasis, links, citation chips) for one line of text. */
     function renderInline(text, keyPrefix, sources) {
@@ -614,6 +820,14 @@ window.__ModuleLoader__.load({
           } else {
             nodes.push(h('a', { key, href, target: '_blank', rel: 'noreferrer noopener' }, label || href));
           }
+        } else if (token.length > 2 && token.charAt(0) === '$' && token.charAt(token.length - 1) === '$') {
+          const tex = token.slice(token.charAt(1) === '$' ? 2 : 1, token.charAt(1) === '$' ? -2 : -1).trim();
+          if (tex) nodes.push(h(MathSpan, { key, tex, display: token.indexOf('$$') === 0 }));
+          else nodes.push(token);
+        } else if (token.length > 4 && token.charAt(0) === '\\' && (token.charAt(1) === '(' || token.charAt(1) === '[')) {
+          const tex = token.slice(2, -2).trim();
+          if (tex) nodes.push(h(MathSpan, { key, tex, display: token.charAt(1) === '[' }));
+          else nodes.push(token);
         } else if (/^\[\d{1,2}\]$/.test(token)) {
           const number = Number(token.slice(1, -1));
           const source = sources && sources[number - 1];
@@ -850,7 +1064,10 @@ window.__ModuleLoader__.load({
       const blocks = parseBlocksCached(source);
       return blocks.map((block, index) => {
         const key = keyBase + '-b' + index;
-        if (block.type === 'code') return h(CodeBlock, { key, code: block.text, lang: block.lang, t });
+        if (block.type === 'code') {
+          if (String(block.lang || '').toLowerCase() === 'mermaid') return h(MermaidBlock, { key, code: block.text, t });
+          return h(CodeBlock, { key, code: block.text, lang: block.lang, t });
+        }
         if (block.type === 'heading') return h('h' + block.level, { key, className: 'dsc-mdHeading' }, renderInline(block.text, key, sources));
         if (block.type === 'hr') return h('hr', { key, className: 'dsc-mdRule' });
         if (block.type === 'quote') {
@@ -1300,7 +1517,7 @@ window.__ModuleLoader__.load({
     }
 
     /** The current date and context the service expects, as a `latest_reminder` row. */
-    function latestReminder(english) {
+    function latestReminder(english, location) {
       const now = new Date();
       const pad = (value) => (value < 10 ? '0' + value : String(value));
       const date = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
@@ -1311,15 +1528,15 @@ window.__ModuleLoader__.load({
         weekday = '';
       }
       // Five fields are required: date, weekday, location (may be empty), platform, language.
-      return [date, weekday, '', 'Web', english ? 'English' : '中文'].join(',');
+      return [date, weekday, String(location || ''), 'Web', english ? 'English' : '中文'].join(',');
     }
 
     /**
      * Build the request history the way the demo does: complete rounds only,
      * then the question being asked now.
      */
-    function requestMessages(history, question, english) {
-      const messages = [{ role: 'latest_reminder', content: latestReminder(english) }];
+    function requestMessages(history, question, english, location) {
+      const messages = [{ role: 'latest_reminder', content: latestReminder(english, location) }];
       for (let i = 0; i < history.length; i += 1) {
         const user = history[i];
         const reply = history[i + 1];
@@ -1928,6 +2145,43 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-versionArrow:disabled { opacity: 0.35; cursor: default; }
 .dsc-botFoot { opacity: 1; }
 
+.dsc-waiting {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 2px;
+}
+.dsc-waitingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-secondary);
+  animation: dsc-bounce 1.2s ease-in-out infinite;
+}
+.dsc-waitingDot:nth-child(2) { animation-delay: 0.15s; }
+.dsc-waitingDot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dsc-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+.dsc-speakAction { display: inline-flex; align-items: center; gap: 5px; }
+.dsc-speakAction[data-playing='true'] { color: var(--dsw-alias-brand-primary); }
+.dsc-soundBars { flex: none; }
+.dsc-soundBar {
+  fill: currentColor;
+  transform-origin: center;
+  animation: dsc-bar 1s ease-in-out infinite;
+}
+.dsc-soundBar:nth-child(2) { animation-delay: 0.2s; }
+.dsc-soundBar:nth-child(3) { animation-delay: 0.4s; }
+.dsc-soundBar:nth-child(4) { animation-delay: 0.6s; }
+@keyframes dsc-bar {
+  0%, 100% { transform: scaleY(0.45); }
+  50% { transform: scaleY(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dsc-waitingDot, .dsc-soundBar { animation: none; }
+}
 .dsc-caveat {
   margin: 8px auto 2px;
   color: var(--dsw-alias-state-idle-primary);
@@ -2507,7 +2761,57 @@ h3.dsc-mdHeading { font-size: 15px; }
 }
 .dsc-codeBody code { white-space: pre; }
 .dsc-codeScroll { position: relative; }
+.dsc-mathRaw {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 0.92em;
+}
+.dsc-mathBlock {
+  display: block;
+  margin: 10px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.dsc-mathInline .katex { font-size: 1.02em; }
+.dsc-mermaid {
+  padding: 12px 6px 4px;
+  overflow-x: auto;
+  text-align: center;
+}
+.dsc-mermaid svg { max-width: 100%; height: auto; }
+.dsc-mermaidState {
+  padding: 16px 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  text-align: center;
+}
 .dsc-codeScroll[data-clipped='true'] { max-height: 320px; overflow: hidden; }
+.dsc-mathRaw {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-1);
+  font-size: 0.92em;
+}
+.dsc-mathBlock {
+  display: block;
+  margin: 10px 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.dsc-mathInline .katex { font-size: 1.02em; }
+.dsc-mermaid {
+  padding: 12px 6px 4px;
+  overflow-x: auto;
+  text-align: center;
+}
+.dsc-mermaid svg { max-width: 100%; height: auto; }
+.dsc-mermaidState {
+  padding: 16px 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12.5px;
+  text-align: center;
+}
 .dsc-codeScroll[data-clipped='true']::after {
   content: '';
   position: absolute;
@@ -2882,18 +3186,20 @@ h3.dsc-mdHeading { font-size: 15px; }
         || (message.status === 'done' && message.stopReason === 'max_tokens');
     }
 
-    /** Check one key with the smallest possible request, like the demo's key field. */
+    /**
+     * Check one key with `GET /models`, the request the demo uses because it
+     * costs nothing. It is the only call that uses a Bearer token.
+     */
     async function verifyKey(settings) {
-      const response = await fetch(endpoints(settings.baseUrl).messages, {
-        method: 'POST',
-        headers: Object.assign({}, apiHeaders(settings, false), { 'content-type': 'application/json' }),
-        body: JSON.stringify({
-          model: settings.model,
-          max_tokens: 1,
-          thinking: { type: 'disabled' },
-          messages: [{ role: 'user', content: 'hi' }],
-        }),
-      });
+      const base = String(settings.baseUrl || DEFAULT_BASE_URL).trim().replace(/\/+$/, '');
+      let response;
+      try {
+        response = await fetch(base + '/models', {
+          headers: { authorization: 'Bearer ' + String(settings.apiKey).trim() },
+        });
+      } catch (error) {
+        return { ok: false, status: 0, message: t_noNetwork() };
+      }
       if (response.ok) return { ok: true, status: response.status };
       let body = '';
       try {
@@ -2902,6 +3208,11 @@ h3.dsc-mdHeading { font-size: 15px; }
         body = '';
       }
       return { ok: false, status: response.status, message: describeFailure(response.status, body) };
+    }
+
+    /** Marker text for a request that never reached the service. */
+    function t_noNetwork() {
+      return 'network';
     }
 
     /**
@@ -2927,6 +3238,15 @@ h3.dsc-mdHeading { font-size: 15px; }
       }
       if (message.stopReason === 'refusal') return { text: t('refused') };
       return null;
+    }
+
+    /** Four animated bars shown while an answer is being read aloud. */
+    function SoundBars() {
+      return h('svg', { className: 'dsc-soundBars', viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true },
+        h('rect', { className: 'dsc-soundBar', x: 1, y: 5, width: 2, height: 6, rx: 1 }),
+        h('rect', { className: 'dsc-soundBar', x: 5, y: 2, width: 2, height: 12, rx: 1 }),
+        h('rect', { className: 'dsc-soundBar', x: 9, y: 4, width: 2, height: 8, rx: 1 }),
+        h('rect', { className: 'dsc-soundBar', x: 13, y: 6, width: 2, height: 4, rx: 1 }));
     }
 
     /** Warning glyph for a reply notice. */
@@ -3488,7 +3808,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         ? h('div', { className: 'dsc-botBody' },
           renderMarkdown(source, t, message.id, byUrl),
           streaming ? h('span', { className: 'dsc-caret' }) : null)
-        : streaming ? h('div', { className: 'dsc-botBody' }, h('span', { className: 'dsc-caret' })) : null;
+        : streaming ? h('div', { className: 'dsc-waiting' }, [0, 1, 2].map((dot) => h('span', { key: dot, className: 'dsc-waitingDot' }))) : null;
       const notice = describeReply(message, t);
       return h('div', { className: 'dsc-botRow' },
         h('div', { className: 'dsc-botHead' },
@@ -3542,11 +3862,14 @@ h3.dsc-mdHeading { font-size: 15px; }
               : null,
             h('button', {
               type: 'button',
-              className: 'dsc-plainAction',
+              className: 'dsc-plainAction dsc-speakAction',
               disabled: speakPending,
               title: speaking ? t('stopReading') : t('speak'),
+              'data-playing': speaking ? 'true' : 'false',
               onClick: onSpeak,
-            }, speaking ? t('stopReading') : speakPending ? '…' : t('speak')),
+            },
+              speaking ? h(SoundBars) : null,
+              h('span', null, speaking ? t('stopReading') : speakPending ? '…' : t('speak'))),
             h('button', { type: 'button', className: 'dsc-plainAction', onClick: copy }, copied ? t('copied') : t('copy')),
             canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null,
             canContinue ? h('button', { type: 'button', className: 'dsc-continueButton', onClick: onContinue }, t('continueGenerating')) : null)
@@ -3663,6 +3986,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [baseUrl, setBaseUrl] = useState(settings.baseUrl);
       const [model, setModel] = useState(settings.model);
       const [voice, setVoice] = useState(settings.voice);
+      const [location, setLocation] = useState(settings.location || '');
       const [confirming, setConfirming] = useState(false);
       const [keyCheck, setKeyCheck] = useState({ state: 'idle', message: '' });
       const keyRef = useRef(null);
@@ -3692,6 +4016,10 @@ h3.dsc-mdHeading { font-size: 15px; }
             setKeyCheck({ state: 'bad', message: t('noticeBalance') });
             return;
           }
+          if (result.status === 0 || result.message === 'network') {
+            setKeyCheck({ state: 'bad', message: t('noticeNetwork') });
+            return;
+          }
           setKeyCheck({ state: 'bad', message: t('keyVerifyFailed').replace('{message}', result.message || '') });
         } catch (error) {
           setKeyCheck({ state: 'bad', message: t('keyVerifyFailed').replace('{message}', error && error.message ? error.message : String(error)) });
@@ -3704,6 +4032,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
           model: model.trim() || DEFAULT_MODEL,
           voice,
+          location: location.trim(),
         }));
       };
       return h('div', {
@@ -3782,6 +4111,17 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('option', { value: 'deepseek-flash' }),
               h('option', { value: 'deepseek-v4-pro' })),
             h('div', { className: 'dsc-fieldHint' }, t('modelHint'))),
+          h('div', { className: 'dsc-field' },
+            h('label', { className: 'dsc-label', htmlFor: 'dsc-location' }, t('settingsLocation')),
+            h('input', {
+              id: 'dsc-location',
+              className: 'dsc-inputText',
+              type: 'text',
+              placeholder: t('settingsLocationPlaceholder'),
+              value: location,
+              onChange: (event) => setLocation(event.target.value),
+            }),
+            h('div', { className: 'dsc-fieldHint' }, t('settingsLocationHint'))),
           h('div', { className: 'dsc-sectionTitle' }, t('settingsSpeech')),
           h('div', { className: 'dsc-field' },
             h('label', { className: 'dsc-label', htmlFor: 'dsc-voice' }, t('voice')),
@@ -4031,7 +4371,7 @@ h3.dsc-mdHeading { font-size: 15px; }
               updatedAt: Date.now(),
               messages: history.concat([question, botMessage]),
             }));
-            const request = requestMessages(history, question, t('send') === 'Send');
+            const request = requestMessages(history, question, t('send') === 'Send', settings.location);
             setDraft('');
             setAttachments([]);
             setEditing(null);
@@ -4072,7 +4412,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           setConversations((previous) => [created].concat(previous));
           setActiveId(conversationId);
         }
-        const request = requestMessages(history, userMessage, t('send') === 'Send');
+        const request = requestMessages(history, userMessage, t('send') === 'Send', settings.location);
         setDraft('');
         setAttachments([]);
         setNotice('');
@@ -4438,7 +4778,12 @@ h3.dsc-mdHeading { font-size: 15px; }
             setNotice(t('speakFailed'));
           };
           setTtsId(message.id);
-          await audio.play();
+          setTtsPendingId(null);
+          // Never block the button on autoplay: some hosts resolve play() late.
+          audio.play().catch(() => {
+            stopSpeaking();
+            setNotice(t('speakFailed'));
+          });
         } catch (error) {
           stopSpeaking();
           setNotice(t('speakFailed') + (error && error.message ? ': ' + error.message : ''));
@@ -4455,9 +4800,10 @@ h3.dsc-mdHeading { font-size: 15px; }
         if (index < 1) return;
         const question = messages[index - 1];
         if (!question || question.role !== 'user') return;
-        const request = requestMessages(messages.slice(0, index - 1), question, t('send') === 'Send');
+        const request = requestMessages(messages.slice(0, index - 1), question, t('send') === 'Send', settings.location);
         // An assistant prefill tells the service to keep going from the cut point.
-        request.push({ role: 'assistant', content: [{ type: 'text', text: assistantText(message) }] });
+        const prefill = assistantText(message);
+        if (prefill.trim()) request.push({ role: 'assistant', content: [{ type: 'text', text: prefill }] });
         patchMessage(conversation.id, message.id, (item) => patchVersion(item, {
           status: 'streaming',
           stopReason: '',
@@ -4474,7 +4820,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         if (!last || last.role !== 'assistant') return;
         const question = messages[lastIndex - 1];
         if (!question || question.role !== 'user') return;
-        const request = requestMessages(messages.slice(0, lastIndex - 1), question, t('send') === 'Send');
+        const request = requestMessages(messages.slice(0, lastIndex - 1), question, t('send') === 'Send', settings.location);
         patchMessage(conversation.id, last.id, (message) => {
           const versions = Array.isArray(message.versions) && message.versions.length
             ? message.versions.slice()
@@ -4680,8 +5026,8 @@ h3.dsc-mdHeading { font-size: 15px; }
         : null;
 
       const recordingLabel = recState === 'recording'
-        ? recSeconds + 's'
-        : recState === 'transcribing' ? t('transcribing') : '';
+        ? t('voiceInputTimer').replace('{seconds}', String(recSeconds))
+        : recState === 'transcribing' ? t('voiceInputCancel') : '';
 
       const composer = h('div', { className: 'dsc-composer' },
         attachments.length
@@ -4730,8 +5076,9 @@ h3.dsc-mdHeading { font-size: 15px; }
               type: 'button',
               className: 'dsc-tool',
               'data-recording': recState === 'recording' ? 'true' : 'false',
-              title: recState === 'recording' ? t('listening') : t('voiceInput'),
-              disabled: recState === 'transcribing',
+              title: recState === 'recording'
+                ? t('voiceInputStop')
+                : recState === 'transcribing' ? t('voiceInputCancel') : t('voiceInput'),
               onClick: toggleRecording,
             },
               recState === 'recording' ? h('span', { className: 'dsc-recDot' }) : h(MicIcon),

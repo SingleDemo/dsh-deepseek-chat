@@ -419,12 +419,13 @@ async function stopChrome() {
   const deadline = Date.now() + 8000;
   while (Date.now() < deadline) {
     if (!(await cdpVersion(400))) {
-      state.chrome = null;
-      return;
+      break;
     }
     await sleep(150);
   }
-  if (child && child.pid) {
+  // Chrome may still be winding down child processes after Browser.close; make
+  // sure the process tree we started is really gone before returning.
+  if (child && child.pid && child.exitCode === null) {
     spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
   }
   await killPortOwners();
@@ -882,6 +883,19 @@ async function openPage(options) {
   const config = options || {};
   if (state.session) await state.session.close();
 
+  if (config.freshProfile) {
+    // Cold profile: no cookies, no localStorage and no key at rest afterwards.
+    await clearStaleChrome();
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        await sleep(300); // Chrome may still be releasing files
+      }
+    }
+  }
+
   await launchChrome();
   const page = await connectPage();
   state.page = page;
@@ -952,12 +966,25 @@ async function openPage(options) {
             return false;
           }
         }, [SETTINGS_KEY]);
+        // Give the DOM storage write a moment to reach disk before Chrome exits.
+        await sleep(300);
       } catch (error) { /* page may already be gone */ }
       const closing = state.session;
       state.session = null;
       if (closing && closing.page) closing.page.close();
       state.page = null;
       await stopChrome();
+      if (config.freshProfile) {
+        // Remove the profile so the seeded key does not survive on disk.
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          try {
+            fs.rmSync(PROFILE_DIR, { recursive: true, force: true });
+            break;
+          } catch (error) {
+            await sleep(300);
+          }
+        }
+      }
     },
   };
   state.session = session;
