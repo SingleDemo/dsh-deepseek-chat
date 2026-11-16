@@ -33,6 +33,15 @@ straight from the repository and must not need a build step to run.
   to `.dsc-demo-host`; the demo's palettes therefore cannot repaint the host.
 - `__API_ORIGIN__` is defined at build time (default `https://api.deepseek.com`).
 
+## Gotcha: the global stylesheets
+
+The demo's palette and layout variables live in `app/theme.css` and
+`app/global.css`, which only its own `src/main.tsx` imports. Because the plugin
+replaces that entry, `src/demo-panel.tsx` imports both explicitly — without them
+the panel silently falls back to the host tokens, which made the send button
+near-invisible in dark mode (`--dsw-alias-brand-primary` unresolved) and shrank
+the composer (`--message-list-max-width` unresolved made the `calc()` invalid).
+
 ## Local patches to the vendored sources
 
 Kept deliberately small, and listed here so an upstream sync can reapply them:

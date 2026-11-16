@@ -2,3 +2,4 @@ node_modules/
 build/
 src/generated/
 scripts/e2e/fixtures/fixtures/
+docs/e2e/snapshots/

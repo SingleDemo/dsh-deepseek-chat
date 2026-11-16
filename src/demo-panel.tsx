@@ -4,6 +4,10 @@
  * Loaded lazily by `entry.tsx`, so the prism/katex/mermaid/markdown stack is
  * parsed only when the chat panel is first opened.
  */
+// The demo loads these two stylesheets from its own entry; the plugin shell must
+// pull them in explicitly, or the panel loses the palette and layout variables.
+import '../vendor/chat-demo/src/app/theme.css'
+import '../vendor/chat-demo/src/app/global.css'
 import { createElement, useEffect, useRef } from 'react'
 import { App as ChatDemoApp } from '../vendor/chat-demo/src/app/App.js'
 import { useSettings } from '../vendor/chat-demo/src/services/settings.js'

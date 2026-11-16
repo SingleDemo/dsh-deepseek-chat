@@ -988,7 +988,8 @@ function createSteps(page, options) {
 /**
  * Boot Chrome, sign in, load the GUI and seed the plugin settings.
  *
- * @param {{ width?: number, height?: number, settings?: object, shotName?: string }} [options]
+ * @param {{ width?: number, height?: number, settings?: object, shotName?: string, skipSeed?: boolean }} [options]
+ * @param {boolean} [options.skipSeed] leave localStorage/IndexedDB untouched (read/verify existing data)
  * @returns {Promise<{ steps: object, page: Cdp, chrome: object, close: Function }>}
  */
 async function openPage(options) {
@@ -1057,7 +1058,9 @@ async function openPage(options) {
     throw new Error('cookie 未通过 DSH 鉴权（落在登录页）: url=' + login.href);
   }
 
-  const seeded = await steps.seedSettings(config.settings);
+  const seeded = config.skipSeed
+    ? null
+    : await steps.seedSettings(config.settings);
   const session = {
     steps,
     page,
