@@ -101,9 +101,12 @@ window.__ModuleLoader__.load({
       thinkLow: 'Low',
       thinkHigh: 'High',
       thinkMax: 'Max',
-      sources: 'Sources',
-      searching: 'Searching the web…',
-      searchFailed: 'Web search failed; answering without sources',
+      searching: 'Searching…',
+      sourceCount: '{count} pages',
+      searchingFor: 'Searching “{query}”',
+      searchResult: 'Search results',
+      searchNoResult: 'No results for this search',
+      close: 'Close',
       voiceInput: 'Voice input',
       listening: 'Listening… tap to stop',
       transcribing: 'Transcribing…',
@@ -187,9 +190,12 @@ window.__ModuleLoader__.load({
       thinkLow: '低',
       thinkHigh: '高',
       thinkMax: '最高',
-      sources: '来源',
-      searching: '正在联网搜索…',
-      searchFailed: '联网搜索失败，改为不引用来源回答',
+      searching: '正在搜索…',
+      sourceCount: '{count} 个网页',
+      searchingFor: '正在搜索「{query}」',
+      searchResult: '搜索结果',
+      searchNoResult: '这次搜索没有结果',
+      close: '关闭',
       voiceInput: '语音输入',
       listening: '正在录音…点击结束',
       transcribing: '正在识别语音…',
@@ -1705,56 +1711,156 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-stage { display: flex; align-items: center; gap: 8px; color: var(--dsw-alias-label-secondary); font-size: 12.5px; }
 .dsc-stage .dsc-caret { animation: none; }
 
-.dsc-sources { margin-top: 10px; }
-.dsc-sourcesHead {
+.dsc-trail {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 8px;
+  gap: 7px;
+  margin: 2px 0 10px;
+  padding: 3px 10px 3px 6px;
   border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 999px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
   cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
 }
-.dsc-sourcesHead:hover { color: var(--dsw-alias-label-primary); }
-.dsc-sourceList { margin: 8px 0 0; padding: 0; list-style: none; }
-.dsc-source {
+.dsc-trail:hover { background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); }
+.dsc-trail[data-open='true'] {
+  border-color: var(--dsw-alias-border-l2);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+.dsc-trail[data-live='true'] { cursor: default; }
+.dsc-trailSites { display: inline-flex; align-items: center; }
+.dsc-trailSites .dsc-siteDot { box-shadow: 0 0 0 2px var(--dsw-alias-bg-base); }
+.dsc-trailSites .dsc-siteDot + .dsc-siteDot { margin-left: -5px; }
+.dsc-trailLabel { white-space: nowrap; }
+.dsc-trailChevron { font-size: 14px; line-height: 1; transform: translateY(-1px); }
+
+.dsc-siteDot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  background: hsl(var(--dot-hue, 220) 45% 50% / 0.18);
+  color: color-mix(in srgb, hsl(var(--dot-hue, 220) 55% 55%) 65%, var(--dsw-alias-label-primary));
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.dsc-drawer {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 6px 0 6px 12px;
-  border-left: 2px solid var(--dsw-alias-border-l1);
-  margin-bottom: 6px;
+  flex: none;
+  width: 310px;
+  min-width: 0;
+  border-left: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
 }
-.dsc-sourceTitle { color: var(--dsw-alias-label-primary); font-size: 12.5px; text-decoration: none; }
-.dsc-sourceTitle:hover { color: var(--dsw-alias-brand-primary); text-decoration: underline; }
-.dsc-sourceSite { color: var(--dsw-alias-label-secondary); font-size: 11px; }
-.dsc-sourceSnippet {
+.dsc-drawerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 52px;
+  flex: none;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+.dsc-drawerTitle { font-size: 13px; font-weight: 600; }
+.dsc-drawerBody { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; }
+.dsc-drawerGroup { margin-bottom: 14px; }
+.dsc-drawerGroup:last-child { margin-bottom: 4px; }
+.dsc-drawerQueries { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.dsc-queryChip {
+  max-width: 100%;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-1);
   color: var(--dsw-alias-label-secondary);
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dsc-drawerLabel { margin: 2px 0 8px; color: var(--dsw-alias-label-secondary); font-size: 11.5px; }
+.dsc-drawerEmpty { padding: 10px 2px; color: var(--dsw-alias-label-secondary); font-size: 12px; }
+.dsc-sourceCard {
+  display: block;
+  margin-bottom: 4px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  color: inherit;
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+.dsc-sourceCard:hover { background: var(--dsw-alias-bg-layer-1); }
+.dsc-sourceMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 5px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+}
+.dsc-sourceSite { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsc-sourceDate { color: var(--dsw-alias-state-idle-primary); }
+.dsc-sourceTitle {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-}
-.dsc-cite { font-size: 0.66em; line-height: 0; vertical-align: super; }
-.dsc-cite a {
-  display: inline-block;
-  margin-left: 2px;
-  padding: 0.16em 0.34em;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--dsw-alias-label-secondary) 18%, transparent);
-  color: var(--dsw-alias-label-primary);
+  font-size: 12.5px;
   font-weight: 500;
-  text-decoration: none;
-  transition: background 120ms ease, color 120ms ease;
+  line-height: 1.45;
 }
-.dsc-cite a:hover {
-  background: var(--dsw-alias-brand-primary);
-  color: var(--dsw-alias-bg-base);
+.dsc-sourceCard:hover .dsc-sourceTitle { color: var(--dsw-alias-brand-primary); }
+.dsc-sourceSnippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.dsc-pageRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  text-decoration: none;
+}
+.dsc-pageRow:hover { background: var(--dsw-alias-bg-layer-1); }
+.dsc-pageTitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsc-pageArrow { color: var(--dsw-alias-label-secondary); font-size: 11px; }
+.dsc-drawerScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
+}
+@media (max-width: 900px) {
+  .dsc-drawer {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 16;
+    width: min(340px, 92%);
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+  }
 }
 .dsc-notice {
   max-width: 720px;
@@ -1865,17 +1971,6 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-fileName { max-width: 210px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsc-fileSize { color: var(--dsw-alias-label-secondary); }
 
-.dsc-trail { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 8px; }
-.dsc-trailItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 9px 2px 7px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  border-radius: 999px;
-  color: var(--dsw-alias-label-secondary);
-  font-size: 11.5px;
-}
 .dsc-cites { display: inline-flex; gap: 3px; margin-left: 3px; vertical-align: super; }
 .dsc-cites a {
   display: inline-block;
@@ -2277,36 +2372,201 @@ h3.dsc-mdHeading { font-size: 15px; }
       return flat.length > 150 ? flat.slice(0, 150) + '…' : flat;
     }
 
-    /** Search results attached to one answer; collapsed while the answer is still streaming. */
-    function Sources(props) {
-      const { sources, t, streaming } = props;
-      const [manual, setManual] = useState(null);
-      if (!sources || !sources.length) return null;
-      const followDefault = !streaming && sources.length <= 4;
-      const open = manual === null ? followDefault : manual;
-      return h('div', { className: 'dsc-sources' },
-        h('button', {
-          type: 'button',
-          className: 'dsc-sourcesHead',
-          'aria-expanded': open,
-          onClick: () => setManual(!open),
-        },
-          h(GlobeIcon),
-          h('span', null, t('sources') + ' · ' + sources.length),
-          h(ChevronIcon, { open })),
-        open
-          ? h('ol', { className: 'dsc-sourceList' }, sources.map((source, index) => h('li', { key: index, className: 'dsc-source' },
-            h('a', {
-              className: 'dsc-sourceTitle',
-              href: source.url,
-              target: '_blank',
-              rel: 'noreferrer noopener',
-            }, (index + 1) + '. ' + (source.title || source.url)),
-            source.site ? h('span', { className: 'dsc-sourceSite' }, source.site) : null,
-            source.snippet
-              ? h('span', { className: 'dsc-sourceSnippet' }, renderInline(clipSnippet(source.snippet), 'src' + index))
-              : null)))
+    /** The host of one result URL, shown when the service gives no site name. */
+    function hostOf(url) {
+      try {
+        return String(new URL(url).hostname).replace(/^www\./, '');
+      } catch (error) {
+        return String(url || '').replace(/^https?:\/\//, '').split('/')[0];
+      }
+    }
+
+    /** A round site chip with the first letter, tinted from the site name. */
+    function SiteDot(props) {
+      const name = String(props.name || '?').trim();
+      const initial = name.charAt(0).toUpperCase() || '?';
+      let hue = 0;
+      for (let i = 0; i < name.length; i += 1) hue = (hue * 31 + name.charCodeAt(i)) % 360;
+      return h('span', {
+        className: 'dsc-siteDot',
+        style: { '--dot-hue': String(hue) },
+        'aria-hidden': true,
+      }, initial);
+    }
+
+    /**
+     * Group the reply blocks into the search and read steps they describe, the
+     * way the demo's timeline does: one row per search with its results.
+     */
+    function buildSearchSteps(blocks) {
+      const steps = [];
+      let pending = null;
+      for (let i = 0; i < (blocks || []).length; i += 1) {
+        const block = blocks[i];
+        if (block.type === 'tool') {
+          if (block.url) {
+            if (pending) {
+              steps.push(pending);
+              pending = null;
+            }
+            steps.push({ kind: 'open', queries: [], results: [], urls: [block.url] });
+            continue;
+          }
+          if (block.queries && block.queries.length) {
+            if (pending) steps.push(pending);
+            pending = { kind: 'search', queries: block.queries.slice(), results: [], urls: [] };
+          }
+          continue;
+        }
+        if (block.type === 'sources') {
+          if (!pending) pending = { kind: 'search', queries: [], results: [], urls: [] };
+          for (let j = 0; j < block.items.length; j += 1) {
+            const item = block.items[j];
+            if (pending.results.some((result) => result.url === item.url)) continue;
+            pending.results.push(item);
+          }
+          continue;
+        }
+        if (block.type === 'fetch') {
+          const urls = block.urls || [];
+          if (urls.length) {
+            if (pending) {
+              steps.push(pending);
+              pending = null;
+            }
+            steps.push({ kind: 'open', queries: [], results: [], urls: urls.slice() });
+          }
+        }
+      }
+      if (pending) steps.push(pending);
+      return steps;
+    }
+
+    /** Every distinct result a reply collected, in the order the service sent them. */
+    function collectSources(blocks) {
+      const sources = [];
+      const seen = {};
+      for (let i = 0; i < (blocks || []).length; i += 1) {
+        const block = blocks[i];
+        if (block.type !== 'sources') continue;
+        for (let j = 0; j < block.items.length; j += 1) {
+          const item = block.items[j];
+          if (seen[item.url]) continue;
+          seen[item.url] = true;
+          sources.push(item);
+        }
+      }
+      return sources;
+    }
+
+    /** One result card: site, date, title, and a two-line snippet, all linking out. */
+    function SourceCard(props) {
+      const { source } = props;
+      return h('a', {
+        className: 'dsc-sourceCard',
+        href: source.url,
+        target: '_blank',
+        rel: 'noreferrer noopener',
+        title: source.title || source.url,
+      },
+        h('div', { className: 'dsc-sourceMeta' },
+          h(SiteDot, { name: source.site || hostOf(source.url) }),
+          h('span', { className: 'dsc-sourceSite' }, source.site || hostOf(source.url)),
+          source.date ? h('span', { className: 'dsc-sourceDate' }, source.date) : null),
+        h('div', { className: 'dsc-sourceTitle' }, source.title || source.url),
+        source.snippet
+          ? h('div', { className: 'dsc-sourceSnippet' }, clipSnippet(source.snippet))
           : null);
+    }
+
+    /** One opened page as a link row; its title comes from the matching result. */
+    function PageRow(props) {
+      const { url, source } = props;
+      return h('a', {
+        className: 'dsc-pageRow',
+        href: url,
+        target: '_blank',
+        rel: 'noreferrer noopener',
+        title: url,
+      },
+        h(SiteDot, { name: (source && source.site) || hostOf(url) }),
+        h('span', { className: 'dsc-pageTitle' }, (source && source.title) || hostOf(url)),
+        h('span', { className: 'dsc-pageArrow', 'aria-hidden': true }, '↗'));
+    }
+
+    /**
+     * The summary row above a reply: site chips, how many pages were read, and
+     * a chevron that opens the search drawer. Live while the reply streams.
+     */
+    function SearchTrail(props) {
+      const { steps, sources, streaming, open, onToggle, t } = props;
+      const pending = steps.find((step) => step.kind === 'search' && !step.results.length);
+      const query = pending && pending.queries.length ? pending.queries[0] : '';
+      const searching = Boolean(streaming && query);
+      const count = sources.length;
+      if (!count && !searching && !steps.length) return null;
+      const chips = sources.slice(0, 4);
+      return h('button', {
+        type: 'button',
+        className: 'dsc-trail',
+        'data-open': open ? 'true' : 'false',
+        'data-live': searching ? 'true' : 'false',
+        'aria-expanded': open ? 'true' : 'false',
+        title: t('searchResult'),
+        onClick: onToggle,
+      },
+        searching ? h('span', { className: 'dsc-liveDot' }) : null,
+        chips.length
+          ? h('span', { className: 'dsc-trailSites' }, chips.map((source, index) => h(SiteDot, {
+            key: source.url,
+            name: source.site || hostOf(source.url),
+            index,
+          })))
+          : null,
+        h('span', { className: 'dsc-trailLabel' },
+          searching ? t('searchingFor').replace('{query}', query) : t('sourceCount').replace('{count}', String(count))),
+        h('span', { className: 'dsc-trailChevron', 'aria-hidden': true }, '›'));
+    }
+
+    /**
+     * The search drawer: every query that ran, every page that was read, with
+     * links out. Rendered as a column beside the thread, like the demo's panel.
+     */
+    function SourcesDrawer(props) {
+      const { steps, sources, streaming, t, onClose } = props;
+      const byUrl = {};
+      for (let i = 0; i < sources.length; i += 1) byUrl[sources[i].url] = sources[i];
+      const rows = [];
+      for (let i = 0; i < steps.length; i += 1) {
+        const step = steps[i];
+        if (step.kind === 'search') {
+          rows.push(h('div', { key: 's' + i, className: 'dsc-drawerGroup' },
+            step.queries.length
+              ? h('div', { className: 'dsc-drawerQueries' }, step.queries.map((query, index) => h('span', {
+                key: 'q' + index,
+                className: 'dsc-queryChip',
+              }, query)))
+              : null,
+            step.results.length
+              ? step.results.map((source) => h(SourceCard, { key: source.url, source }))
+              : h('div', { className: 'dsc-drawerEmpty' }, streaming ? t('searching') : t('searchNoResult'))));
+          continue;
+        }
+        rows.push(h('div', { key: 'o' + i, className: 'dsc-drawerGroup' },
+          h('div', { className: 'dsc-drawerLabel' }, t('readPages')),
+          step.urls.map((url) => h(PageRow, { key: url, url, source: byUrl[url] }))));
+      }
+      return h('aside', { className: 'dsc-drawer' },
+        h('div', { className: 'dsc-drawerHead' },
+          h('span', { className: 'dsc-drawerTitle' }, t('searchResult')),
+          h('button', {
+            type: 'button',
+            className: 'dsc-iconButton',
+            title: t('close'),
+            'aria-label': t('close'),
+            onClick: onClose,
+          }, h(CloseIcon))),
+        h('div', { className: 'dsc-drawerBody' }, rows.length ? rows : h('div', { className: 'dsc-drawerEmpty' }, t('searching'))));
     }
 
     /** Human-readable file size. */
@@ -2371,34 +2631,9 @@ h3.dsc-mdHeading { font-size: 15px; }
           message.text ? h('div', { className: 'dsc-userText' }, message.text) : null));
     }
 
-    /** The search and link-reading steps a reply used, shown as one quiet row. */
-    function SearchTrail(props) {
-      const { tools, fetches, t } = props;
-      const queries = [];
-      for (let i = 0; i < tools.length; i += 1) {
-        const list = tools[i].queries || [];
-        for (let j = 0; j < list.length; j += 1) if (queries.indexOf(list[j]) < 0) queries.push(list[j]);
-      }
-      const urls = [];
-      for (let i = 0; i < fetches.length; i += 1) {
-        const list = fetches[i].urls || [];
-        for (let j = 0; j < list.length; j += 1) if (urls.indexOf(list[j]) < 0) urls.push(list[j]);
-      }
-      if (!queries.length && !urls.length) return null;
-      return h('div', { className: 'dsc-trail' },
-        queries.length
-          ? h('span', { className: 'dsc-trailItem', title: queries.join('\n') },
-            h(GlobeIcon), h('span', null, t('searchQueries') + ' · ' + queries.length))
-          : null,
-        urls.length
-          ? h('span', { className: 'dsc-trailItem', title: urls.join('\n') },
-            h(FileIcon), h('span', null, t('readPages') + ' · ' + urls.length))
-          : null);
-    }
-
     /** One assistant message rendered from its streamed blocks. */
     function AssistantMessage(props) {
-      const { message, streaming, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t } = props;
+      const { message, streaming, onRegenerate, canRegenerate, onSpeak, speaking, speakPending, t, searchOpen, onToggleSearch } = props;
       const [copied, setCopied] = useState(false);
       const blocks = message.blocks || [];
       const answer = assistantText(message);
@@ -2411,19 +2646,8 @@ h3.dsc-mdHeading { font-size: 15px; }
       }, [answer]);
       const hasBody = Boolean(answer.trim());
       const thinking = blocks.filter((block) => block.type === 'thinking').map((block) => block.text).join('\n\n').trim();
-      const tools = blocks.filter((block) => block.type === 'tool');
-      const fetches = blocks.filter((block) => block.type === 'fetch');
-      const sources = [];
-      const seen = {};
-      for (let i = 0; i < blocks.length; i += 1) {
-        if (blocks[i].type !== 'sources') continue;
-        for (let j = 0; j < blocks[i].items.length; j += 1) {
-          const item = blocks[i].items[j];
-          if (seen[item.url]) continue;
-          seen[item.url] = true;
-          sources.push(item);
-        }
-      }
+      const searchSteps = buildSearchSteps(blocks);
+      const sources = collectSources(blocks);
       const citeIndex = {};
       let cites = 0;
       for (let i = 0; i < blocks.length; i += 1) {
@@ -2471,9 +2695,15 @@ h3.dsc-mdHeading { font-size: 15px; }
               canRegenerate ? h('button', { type: 'button', className: 'dsc-plainAction', onClick: onRegenerate }, t('regenerate')) : null)
             : null),
         thinking ? h(Reasoning, { text: thinking, live: streaming && !hasBody, t }) : null,
-        h(SearchTrail, { tools, fetches, t }),
+        h(SearchTrail, {
+          steps: searchSteps,
+          sources,
+          streaming,
+          open: searchOpen === true,
+          onToggle: onToggleSearch,
+          t,
+        }),
         body,
-        h(Sources, { sources, t, streaming }),
         message.error ? h('div', { className: 'dsc-error', role: 'alert' }, t('error') + ': ' + message.error) : null,
         message.status === 'stopped' ? h('div', { className: 'dsc-stopNote' }, t('stopped')) : null);
     }
@@ -2696,6 +2926,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const [recSeconds, setRecSeconds] = useState(0);
       const [attachments, setAttachments] = useState([]);
       const [dragging, setDragging] = useState(false);
+      const [drawerId, setDrawerId] = useState(null);
       const [ttsId, setTtsId] = useState(null);
       const [ttsPendingId, setTtsPendingId] = useState(null);
       const inputRef = useRef(null);
@@ -2709,6 +2940,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const thinkWrapRef = useRef(null);
       const dragDepthRef = useRef(0);
       const narrow = useMediaQuery('(max-width: 760px)');
+      const compact = useMediaQuery('(max-width: 900px)');
 
       const active = useMemo(
         () => conversations.find((item) => item.id === activeId) || null,
@@ -3271,6 +3503,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         setActiveId(created.id);
         setDraft('');
         setNotice('');
+        setDrawerId(null);
         if (narrow) setRailOpen(false);
         window.setTimeout(() => {
           const node = inputRef.current;
@@ -3282,6 +3515,7 @@ h3.dsc-mdHeading { font-size: 15px; }
         if (id === activeId && abortRef.current) abortRef.current.abort();
         const remaining = conversations.filter((item) => item.id !== id);
         setConversations(remaining);
+        setDrawerId(null);
         if (id === activeId) setActiveId(remaining.length ? remaining[0].id : null);
       }, [activeId, conversations]);
 
@@ -3351,6 +3585,7 @@ h3.dsc-mdHeading { font-size: 15px; }
               t,
               onSelect: () => {
                 setActiveId(conversation.id);
+                setDrawerId(null);
                 if (narrow) setRailOpen(false);
               },
               onStartRename: () => setRenamingId(conversation.id),
@@ -3392,6 +3627,8 @@ h3.dsc-mdHeading { font-size: 15px; }
               onSpeak: () => toggleSpeak(message),
               speaking: ttsId === message.id,
               speakPending: ttsPendingId === message.id,
+              searchOpen: drawerId === message.id,
+              onToggleSearch: () => setDrawerId((current) => (current === message.id ? null : message.id)),
               t,
             }));
         }));
@@ -3570,6 +3807,17 @@ h3.dsc-mdHeading { font-size: 15px; }
               h('button', { type: 'button', className: 'dsc-plainAction', onClick: () => setSettingsOpen(true) }, t('settings'))),
           composer));
 
+      const drawerMessage = drawerId ? messages.find((message) => message.id === drawerId) : null;
+      const drawer = drawerMessage
+        ? h(SourcesDrawer, {
+          steps: buildSearchSteps(drawerMessage.blocks || []),
+          sources: collectSources(drawerMessage.blocks || []),
+          streaming: drawerMessage.id === streamingId,
+          t,
+          onClose: () => setDrawerId(null),
+        })
+        : null;
+
       return h('div', {
         className: 'dsc-root',
         onDragEnter,
@@ -3581,6 +3829,8 @@ h3.dsc-mdHeading { font-size: 15px; }
         railOpen && narrow ? h('div', { className: 'dsc-scrim', onClick: () => setRailOpen(false) }) : null,
         rail,
         chatColumn,
+        drawer,
+        drawer && compact ? h('div', { className: 'dsc-drawerScrim', onClick: () => setDrawerId(null) }) : null,
         dragging
           ? h('div', { className: 'dsc-dropMask' },
             h('div', { className: 'dsc-dropCard' },

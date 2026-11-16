@@ -48,6 +48,17 @@ The composer toolbar carries one control per capability:
 | **Add files** | Same as drag, paste, or the picker: up to 10 attachments per message, 64 MB each (32 MB for plain-text uploads). |
 | **Read aloud** | On each answer: synthesizes speech with TTS and plays it; press again to stop. |
 
+Above each answer that used the web, a pill shows the sites it read and how many
+pages it collected. Selecting the pill opens the **search drawer** — the same
+idea as the demo's right-hand panel:
+
+![The search drawer listing the queries that ran, the results, and every page the model read](docs/screenshots/search-drawer.png)
+
+The drawer lists the queries that actually ran, one card per result (site,
+date, title, snippet), and the pages the model opened. Every row is a link that
+opens in a new tab, and the list fills in while the reply is still streaming —
+so you can watch the search happen instead of waiting for the answer.
+
 Conversations are created automatically on the first message, titled from its
 first words, and can be renamed, deleted, or removed in bulk from Settings.
 Each reply also offers **Copy** and **Regenerate**.
@@ -63,7 +74,8 @@ Each reply also offers **Copy** and **Regenerate**.
   blocks, everything else uploads as user data. File chips show upload state and
   can be retried or removed; sent messages keep their chips.
 - Native web tools: `deepseek_web_search` (toggled) and `deepseek_read_url`,
-  with inline citation chips and a deduplicated source list.
+  with inline citation chips, a page-count pill, and a drawer that shows every
+  query, result card, and opened page with live updates while streaming.
 - Speech: `/v1/tools/asr` for voice input (Ogg Opus, or WAV resampled to
   16 kHz in the browser) and `/v1/tools/tts` for read-aloud.
 - Markdown: headings, lists, quotes, tables, links, images, inline code, and
@@ -83,6 +95,8 @@ Each reply also offers **Copy** and **Regenerate**.
 - Attachments, recordings, answer text for read-aloud, and search queries go to
   the same API base URL and appear on your bill. Uploaded files stay on the API
   service; removing a chip only stops it from being sent.
+- The search drawer only lists what the service returned: site initials are
+  drawn locally, so opening it makes no extra network requests.
 - Clearing site data, or **Delete all conversations** in Settings, removes the
   local data. Requests already sent to the API service are not recalled.
 - Turning the plugin off hides the entry and the page; it does not delete the
