@@ -173,9 +173,11 @@ The Settings dialog has four sections:
   files stay on the API service; removing a chip only stops it from being sent.
 - The search drawer only lists what the service returned: site initials are
   drawn locally, so opening it makes no extra network requests.
-- **Download** writes a JSON backup that includes conversations and the
-  non-secret settings; the API key is never part of it. **Choose file** replaces
-  the conversations stored in this browser and uploads nothing.
+- **Download** writes DeepSeek's own history ZIP (`manifest.json` v3,
+  `chat_sessions/*.json`, `chat_session_index.json`), so the file imports into
+  DeepSeek too; the API key is never part of it. **Choose file** accepts a
+  DeepSeek export ZIP (or an older JSON backup), replaces the conversations
+  stored in this browser, and uploads nothing.
 - Clearing site data, or **Delete all conversations** in Settings, removes the
   local conversations. Requests already sent to the API service are not
   recalled.
@@ -220,12 +222,14 @@ The bundle is a plain package: no build step, no dependencies, no Host code.
 - Math and diagrams depend on the jsDelivr CDN (KaTeX 0.16.22 and mermaid
   11.10.1). Offline, a formula stays as its source text and a diagram falls back
   to the code view; the first reply that needs them waits for the download.
-- A backup is this plugin's own JSON format (`dsh-chat-backup`, version 1), not
-  the DeepSeek service's export ZIP. Import accepts only files exported by this
-  plugin, replaces every conversation stored in this browser instead of merging,
-  and rejects newer/incomplete/corrupt files. If `localStorage` is full the
-  import fails with an incomplete-file notice and leaves the current archive in
-  place.
+- Backups use DeepSeek's history ZIP format in both directions. Known losses:
+  attachment image bytes are not written (our files stay on the API service, so
+  the archive carries file names and sizes only), `TOOL_FIND` and
+  `PARTIAL_FILE_READ` steps have no UI and are dropped, and reply branches are
+  flattened to the selected path until branching support lands. Import replaces
+  every conversation stored in this browser instead of merging, and rejects
+  newer/incomplete/corrupt files. If `localStorage` is full the import fails with
+  an incomplete-file notice and leaves the current archive in place.
 - Editing a message deletes the answers after it. The demo keeps branches you
   can switch back to; this version is deliberately simpler, and only
   regenerated answers keep versions.
