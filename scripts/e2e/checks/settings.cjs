@@ -1,62 +1,100 @@
 /**
  * Check: settings
  *
- * Opens the settings dialog and verifies the API key field is there. The key is
- * seeded from the credentials file; the assertion only checks that a non-empty
- * value arrived, never the value itself.
+ * The demo's settings dialog is portaled into the panel (overlay dims the panel,
+ * not the Harness window) and has two tabs. This check asserts the tabs, the two
+ * plugin extras on 通用设置 (思考强度 / API 地址), the data-management rows, and
+ * that the theme control follows "跟随系统" / switches the host class.
  */
 'use strict';
 
+const h = require('./lib/demo-helpers.cjs');
+
 module.exports = {
   name: 'settings',
-  description: '打开设置 → 断言 API Key 输入框存在（password 类型、已注入值）',
-  timeoutMs: 60000,
+  description: '面板内设置弹窗 + 两个 tab；通用设置含思考强度/API 地址/主题跟随系统；数据管理含 API Key/导入/导出/删除全部',
+  timeoutMs: 90000,
   cost: 'none',
+  settings: { thinking: false, search: false, theme: 'system' },
 
   async run(ctx) {
     const s = ctx.steps;
+    await h.openSettings(ctx);
 
-    // Either the rail footer row or the header gear opens the dialog; the panel
-    // keeps both, and the viewport used by the runner is wide so the rail shows.
-    const trigger = await s.eval(() => {
-      const railFoot = document.querySelector('.dsc-railFoot .dsc-row');
-      if (railFoot) { railFoot.click(); return 'railFoot'; }
-      const headButtons = document.querySelectorAll('.dsc-chatHead .dsc-iconButton');
-      const gear = headButtons[headButtons.length - 1];
-      if (gear) { gear.click(); return 'chatHead'; }
-      return null;
-    });
-    ctx.assert(trigger, '找到设置入口（rail 底部行或标题栏齿轮）');
-    ctx.log('设置入口: ' + trigger);
-
-    await s.waitForSelector('.dsc-dialog', { timeout: 10000, label: '设置对话框 .dsc-dialog' });
-
-    const dialog = await s.eval(() => {
-      const root = document.querySelector('.dsc-dialog');
-      if (!root) return null;
-      const title = root.querySelector('.dsc-dialogTitle');
-      const key = root.querySelector('#dsc-api-key');
+    const dialog = await s.eval((host) => {
+      const node = document.querySelector(host + ' [role="dialog"]');
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      const overlay = node.closest('[class*="overlay"]');
+      const hostRect = document.querySelector(host).getBoundingClientRect();
       return {
-        title: title ? (title.textContent || '').trim() : '',
-        key: key ? {
-          type: key.type,
-          valueLength: (key.value || '').length,
-          placeholder: key.placeholder,
-          visible: key.getBoundingClientRect().width > 0,
-        } : null,
-        fields: Array.from(root.querySelectorAll('input, select, textarea')).map((element) => element.id),
+        text: node.innerText || '',
+        width: Math.round(rect.width),
+        overlay: Boolean(overlay),
+        overlayWidth: overlay ? Math.round(overlay.getBoundingClientRect().width) : 0,
+        hostWidth: Math.round(hostRect.width),
+        tabs: Array.from(node.querySelectorAll('[role="tab"]')).map((tab) => (tab.innerText || '').trim()),
       };
-    });
+    }, [h.HOST]);
+    ctx.assert(dialog, '设置弹窗 [role=dialog] 在面板内');
+    ctx.assert(dialog.overlay, '弹窗有 [class*=overlay] 遮罩');
+    ctx.assert(Math.abs(dialog.overlayWidth - dialog.hostWidth) <= 2,
+      '遮罩尺寸等于面板（面板 ' + dialog.hostWidth + 'px，遮罩 ' + dialog.overlayWidth + 'px）');
+    ctx.assertEqual(dialog.tabs.join(','), '通用设置,数据管理', '设置有两个 tab：通用设置 / 数据管理');
 
-    ctx.assert(dialog, '设置对话框可读取');
-    ctx.assertMatch(dialog.title, /设置|Settings/, '对话框标题是「设置」');
-    ctx.assert(dialog.key, 'API Key 输入框 #dsc-api-key 存在');
-    ctx.assertEqual(dialog.key.type, 'password', 'API Key 输入框是 password 类型');
-    ctx.assert(dialog.key.visible, 'API Key 输入框可见');
-    ctx.assert(dialog.key.valueLength > 0, 'API Key 已从凭证注入（仅断言长度 > 0，不打印值）');
-    ctx.log('字段: ' + dialog.fields.filter(Boolean).join(', '));
+    // 通用设置: plugin extras + theme control.
+    ctx.assertIncludes(dialog.text, '主题', '通用设置有主题行');
+    const radios = await s.eval((host) => Array.from(document.querySelectorAll(host + ' [role="dialog"] [role="radio"]'))
+      .map((node) => ({ text: (node.innerText || '').trim(), checked: node.getAttribute('aria-checked') === 'true' })), [h.HOST]);
+    ctx.assertEqual(radios.length, 3, '主题有浅色/深色/跟随系统三个选项');
+    ctx.assert(radios.some((item) => item.text === '跟随系统' && item.checked),
+      '默认主题是「跟随系统」');
+    ctx.assert(await s.exists(h.HOST + ' [role="dialog"] [aria-label="思考强度"]'), '通用设置里有「思考强度」选择器');
+    const effort = await s.text(h.HOST + ' [role="dialog"] [aria-label="思考强度"]');
+    ctx.assertMatch(effort, /高|低|最高/, '思考强度当前值可读（' + effort + '）');
+    const apiInput = await s.eval((host) => {
+      const input = document.querySelector(host + ' [role="dialog"] input[placeholder="留空使用默认地址"]');
+      return input ? { value: input.value, placeholder: input.placeholder } : null;
+    }, [h.HOST]);
+    ctx.assert(apiInput, '通用设置里有「API 地址」输入框（占位：留空使用默认地址）');
+    ctx.assertEqual(apiInput.value, '', 'API 地址默认留空');
+    ctx.log('通用设置：主题 3 选项（跟随系统默认）、思考强度=' + effort + '、API 地址为空');
+    await s.shot('settings-general');
 
+    // Theme follows the host and can be forced, then back to system.
+    await h.clickByText(ctx, /^深色$/, h.SETTINGS_DIALOG);
+    await s.waitForSelector(h.HOST + '.dark', { timeout: 5000, label: '切到深色后面板 host 带 dark class' });
+    ctx.assertEqual(await s.eval((key) => window.localStorage.getItem(key), [h.DEMO_KEYS.theme]), 'dark',
+      '深色偏好写入 chat-demo:theme-preference');
+    await h.clickByText(ctx, /^跟随系统$/, h.SETTINGS_DIALOG);
+    await s.waitFor((host, key) => {
+      if (window.localStorage.getItem(key) !== 'system') return false;
+      const node = document.querySelector(host);
+      const hostDark = document.documentElement.getAttribute('data-ds-theme-source') === 'dark'
+        || document.body.hasAttribute('data-ds-dark-theme');
+      return node.classList.contains(hostDark ? 'dark' : 'light');
+    }, { timeout: 5000, label: '跟随系统后面板主题与宿主一致' }, [h.HOST, h.DEMO_KEYS.theme]);
+    ctx.log('主题：深色切换生效，跟随系统恢复为宿主主题');
+
+    // 数据管理 tab.
+    await h.openSettingsTab(ctx, '数据管理');
+    const dataText = await h.settingsText(ctx);
+    for (const label of ['API Key', '导入历史对话', '导出所有历史对话', '删除所有对话']) {
+      ctx.assertIncludes(dataText, label, '数据管理包含：' + label);
+    }
+    ctx.assert(await s.exists(h.HOST + ' [role="dialog"] input[type="password"]') === false,
+      '已注入 Key 时 API Key 只显示掩码（不出现密码输入框）');
+    const masked = await s.eval((host) => {
+      const node = document.querySelector(host + ' [role="dialog"]');
+      const match = (node.innerText || '').match(/\*{20,}/);
+      return match ? match[0].length : 0;
+    }, [h.HOST]);
+    ctx.assert(masked > 0, '数据管理里显示 API Key 掩码（长度 ' + masked + '）');
+    ctx.log('数据管理：掩码长度 ' + masked + '，导入/导出/删除全部齐全');
+    await s.shot('settings-data');
+    // Canonical screenshot: the settings dialog itself, not the panel behind it.
     await s.shot('settings');
-    // Leave the dialog open: that is the state the screenshot should show.
+
+    await h.closeSettings(ctx);
   },
 };

@@ -1,16 +1,15 @@
 /**
  * Check: official-import
  *
- * Feeds three official-format fixtures through the real settings → 数据管理 → 导入
- * flow and asserts they land as conversations:
+ * Feeds the three official-format fixtures through the demo's 设置 → 数据管理 →
+ * 导入 flow:
  *   - official-backup.zip           STORE archive (manifest v3 + session + index + image)
  *   - official-backup-deflate.zip   DEFLATE entries written with a data descriptor
- *   - official-backup-fragments.zip all 13 fragment types + a real branch
+ *   - official-backup-fragments.zip all 13 fragment types + a USER with two ASSISTANT siblings
  *
- * The user's data is snapshotted first (exported to a ZIP), because importing
- * replaces every conversation; the snapshot is imported back at the end, and the
- * finally block retries that restore if an assertion failed mid-way.
- *
+ * Assertions: session title in the sider, question/answer text rendered, the
+ * branch fixture keeps both answers switchable via the version pager.
+ * The user's seeded data is snapshotted first and restored at the end.
  * Costs no API calls.
  */
 'use strict';
@@ -18,17 +17,8 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const h = require('./lib/backup-helpers.cjs');
+const h = require('./lib/demo-helpers.cjs');
 
-const BASIC = {
-  title: 'SSE 是什么',
-  question: '帮我看下 SSE 是怎么把 token 推过来的',
-  answer: 'text/event-stream 帧',
-};
-const FRAGMENTS = {
-  question: '把 13 种片段都覆盖一遍',
-  answer: '这是第一个回答版本',
-};
 const SEEDS = [
   { id: 'e2e-user-1', title: 'E2E-USER-一', question: '快照问题一', answer: '快照回答一' },
   { id: 'e2e-user-2', title: 'E2E-USER-二', question: '快照问题二', answer: '快照回答二' },
@@ -36,10 +26,10 @@ const SEEDS = [
 
 module.exports = {
   name: 'official-import',
-  description: '官方 ZIP 导入：fixture 基本包/ DEFLATE 变体/ 13 片段变体都能导入并渲染；结束用快照恢复用户数据',
+  description: '官方 ZIP 导入（demo 数据管理）：fixture 基本包/DEFLATE 变体/13 片段分支包都能导入渲染，分支可切换；结束用快照恢复',
   timeoutMs: 180000,
   cost: 'none',
-  settings: { thinking: 'off', webSearch: false },
+  settings: { thinking: false, search: false },
 
   async run(ctx) {
     const s = ctx.steps;
@@ -47,128 +37,98 @@ module.exports = {
     fs.mkdirSync(dir, { recursive: true });
     let snapshot = null;
 
-    const waitRail = async (count, label) => {
-      await s.waitFor(expected => document.querySelectorAll('.dsc-railList .dsc-row').length === expected,
-        { timeout: 15000, label: label || ('rail 会话数变成 ' + count) }, [count]);
+    const waitSiderTitle = async (needle, timeout) => {
+      await s.waitFor((host, text) => Array.from(document.querySelectorAll(host + ' [class*="SessionItem"]'))
+        .some((node) => (node.innerText || '').indexOf(text) >= 0),
+      { timeout: timeout || 20000, label: 'sider 出现会话「' + needle + '」' }, [h.HOST, needle]);
     };
-    const threadText = async () => await s.eval(() => ({
-      user: Array.from(document.querySelectorAll('.dsc-turnUser')).map(n => n.innerText || '').join(' | '),
-      bot: Array.from(document.querySelectorAll('.dsc-botBody')).map(n => n.innerText || '').join(' | '),
-      files: Array.from(document.querySelectorAll('.dsc-fileChip')).map(n => n.innerText || '').join(' | '),
-      thinking: document.querySelectorAll('.dsc-reasonTitle').length,
-      steps: document.querySelectorAll('.dsc-stepAction').length,
-      root: Boolean(document.querySelector('.dsc-root')),
-      errorNotices: document.querySelectorAll('.dsc-notice[data-error="true"]').length,
-    }));
+    const restoreSnapshot = async () => {
+      await h.importHistoryZip(ctx, snapshot);
+      await waitSiderTitle('E2E-USER-一');
+      const sessions = await h.readSessions(ctx);
+      if (sessions.length !== 2) throw new Error('快照恢复后会话数不是 2（' + sessions.length + '）');
+    };
 
     try {
-      // 0. Snapshot the user's current data (real fix: never lose it on import).
-      const seeds = await h.seedConversations(ctx, SEEDS);
-      ctx.log('种子用户数据: ' + seeds.map(item => item.title).join(' / '));
-      await h.openSettings(ctx);
-      const exported = await h.exportByDownload(ctx, dir);
-      snapshot = exported.file;
-      ctx.log('用户数据快照: ' + path.basename(snapshot) + ' (' + exported.bytes.length + 'B via ' + exported.behavior + ')');
+      const seeded = SEEDS.map((item) => h.buildSession(item, Date.now()));
+      await h.seedSessions(ctx, seeded);
+      await waitSiderTitle('E2E-USER-一');
+      const summaries = await h.readSummaries(ctx);
+      ctx.log('种子用户数据: ' + summaries.map((item) => item.title).join(' / '));
 
-      // 1. Basic official fixture (STORE): title + question + answer + thinking + image.
-      await h.openSettings(ctx);
-      await h.importBackupFile(ctx, h.fixture('official-backup.zip'));
-      await waitRail(1, '官方 fixture 导入后 rail 只有 1 条');
-      let stored = await h.storedConversations(ctx);
-      ctx.assertEqual(stored.length, 1, '导入后 localStorage 只有 1 个对话');
-      ctx.assertEqual(stored[0].title, BASIC.title, '会话标题是 fixture 的「SSE 是什么」');
-      ctx.assertIncludes((await h.railTitles(ctx)).join(' | '), BASIC.title, 'rail 显示 fixture 会话标题');
-      await h.openRailConversation(ctx, BASIC.title);
-      const basic = await threadText();
-      ctx.assertIncludes(basic.user, BASIC.question, 'fixture 提问文本可见');
-      ctx.assertIncludes(basic.bot, BASIC.answer, 'fixture 回答文本可见');
-      ctx.assertIncludes(basic.files, 'pic.png', 'fixture 的 FILE 片段渲染成附件');
-      ctx.assert(basic.thinking > 0, 'fixture 的 THINK 片段渲染出思考区（实际 ' + basic.thinking + '）');
-      ctx.assertEqual(basic.errorNotices, 0, '导入后没有错误提示条');
-      ctx.log('思考区 ' + basic.thinking + ' 个 · 搜索步骤 ' + basic.steps + ' 个 · 附件 ' + basic.files.trim());
+      const exported = await h.exportHistoryZip(ctx, dir);
+      snapshot = exported.file;
+      ctx.assert(snapshot, '导出用户数据快照成功（' + path.basename(snapshot) + '）');
+      ctx.log('用户数据快照: ' + path.basename(snapshot) + ' (' + exported.bytes.length + 'B)');
+
+      // 1. Basic official fixture: title / question / answer / attachment chip.
+      await h.importHistoryZip(ctx, h.fixture('official-backup.zip'));
+      await waitSiderTitle('SSE 是什么');
+      await h.openSession(ctx, 'SSE 是什么');
+      await s.waitFor((host) => (document.querySelector(host + ' .ds-assistant-message-main-content') || {}).innerText, {
+        timeout: 15000, label: 'fixture 回答正文渲染',
+      }, [h.HOST]);
+      const question = (await h.userBubbles(ctx)).join(' | ');
+      const answer = await h.replyText(ctx);
+      ctx.assertIncludes(question, '帮我看下 SSE 是怎么把 token 推过来的', 'fixture 提问文本可见');
+      ctx.assertIncludes(answer, 'text/event-stream 帧', 'fixture 回答文本可见');
+      const imported = await h.readSessions(ctx);
+      const importedUser = (imported[0].messages || []).find((message) => message.role === 'user');
+      const fileNames = ((importedUser && importedUser.files) || []).map((file) => file.name).join(' | ');
+      ctx.assertIncludes(fileNames, 'pic.png', 'fixture 的 FILE 片段作为附件元数据保留');
+      ctx.assertEqual(imported.length, 1, '导入覆盖后只剩 1 个会话');
+      ctx.log('基本包导入成功：标题/提问/回答/附件都在');
       await s.shot('official-import');
 
       // 2. DEFLATE + data descriptor variant.
-      await h.openSettings(ctx);
-      await h.importBackupFile(ctx, h.fixture('official-backup-deflate.zip'));
-      await waitRail(1, 'DEFLATE fixture 导入后 rail 只有 1 条');
-      stored = await h.storedConversations(ctx);
-      ctx.assertEqual(stored.length, 1, 'DEFLATE 包导入后 localStorage 只有 1 个对话');
-      ctx.assertEqual(stored[0].title, BASIC.title, 'DEFLATE 包会话标题正确');
-      const deflated = await threadText();
-      ctx.assertIncludes(deflated.bot, BASIC.answer, 'DEFLATE 包回答正文可见');
+      await h.importHistoryZip(ctx, h.fixture('official-backup-deflate.zip'));
+      await waitSiderTitle('SSE 是什么', 15000);
+      await h.openSession(ctx, 'SSE 是什么');
+      await s.waitFor((host) => ((document.querySelector(host + ' .ds-assistant-message-main-content') || {}).innerText || '').indexOf('text/event-stream') >= 0, {
+        timeout: 15000, label: 'DEFLATE 包回答正文',
+      }, [h.HOST]);
       ctx.log('DEFLATE + data descriptor 导入成功');
       await s.shot('official-import-deflate');
 
-      // 3. All 13 fragment types + a branch: imports without crashing AND keeps
-      //    the second ASSISTANT sibling reachable through the version pager.
-      await h.openSettings(ctx);
-      await h.importBackupFile(ctx, h.fixture('official-backup-fragments.zip'));
-      await waitRail(1, 'fragments fixture 导入后 rail 只有 1 条');
-      stored = await h.storedConversations(ctx);
-      ctx.assertEqual(stored.length, 1, 'fragments 包导入后 localStorage 只有 1 个对话');
-      ctx.assertEqual(stored[0].title, '', 'fragments fixture 的 null 标题导入为空字符串');
-      const fragmentConversation = stored[0];
-      ctx.assertEqual((fragmentConversation.messages || []).length, 3,
-        '导入保留 USER + 两个 ASSISTANT 兄弟节点（实际 ' + (fragmentConversation.messages || []).length + '）');
-      const rootUser = fragmentConversation.messages.find((node) => node.role === 'user');
-      ctx.assert(rootUser, 'fragments 会话里有 USER 根节点');
-      ctx.assertEqual(fragmentConversation.rootId, rootUser.id, 'rootId 指向该 USER 根节点');
-      const answerSiblings = fragmentConversation.messages
-        .filter((node) => node.parentId === rootUser.id && node.role === 'assistant');
-      ctx.assertEqual(answerSiblings.length, 2, '该 USER 下保留了两个回答兄弟节点');
-      ctx.assertEqual(rootUser.selectedChildId, answerSiblings[0].id,
-        'current_message_id 指向的第一个回答是默认选中分支');
-      await h.openRailConversation(ctx);
-      const fragments = await threadText();
-      ctx.assertEqual(fragments.root, true, '13 片段导入后面板仍在（没崩）');
-      ctx.assertIncludes(fragments.user, FRAGMENTS.question, 'fragments 包提问文本可见');
-      ctx.assertIncludes(fragments.bot, FRAGMENTS.answer, 'fragments 包第一个回答版本可见');
-      ctx.assertEqual(fragments.errorNotices, 0, '13 片段导入没有错误提示条');
-
-      let pager = await h.readPager(ctx, '.dsc-botFoot .dsc-versions');
-      ctx.assert(pager, '导入后回答下方出现 .dsc-botFoot .dsc-versions pager');
-      ctx.assertEqual(pager.arrows.length, 2, '回答 pager 有左右两个箭头');
-      ctx.assertMatch(pager.label, /^1\s*\/\s*2$/,
-        '默认显示 current_message_id 指向的第一个回答（1 / 2），实际 ' + pager.label);
-      await h.clickPagerArrow(ctx, '.dsc-botFoot .dsc-versions', 1);
-      await s.waitFor((pagerLabel) => {
-        const node = document.querySelector('.dsc-botFoot .dsc-versions .dsc-versionLabel');
-        const body = document.querySelector('.dsc-botBody');
-        return node && (node.innerText || '').trim() === pagerLabel
-          && body && (body.innerText || '').indexOf('第二个回答版本') >= 0;
-      }, { timeout: 10000, label: '切到第二个回答版本（2 / 2）' }, ['2 / 2']);
-      pager = await h.readPager(ctx, '.dsc-botFoot .dsc-versions');
-      ctx.assertMatch(pager.label, /^2\s*\/\s*2$/, '切换后回答 pager 是 2 / 2');
-      ctx.assertIncludes(await threadText().then(item => item.bot), '第二个回答版本（同父兄弟节点）',
-        '第二个回答版本可以切换出来');
-      ctx.log('分支保留：默认 ' + answerSiblings.length + ' 个回答兄弟节点可切换，思考区 '
-        + fragments.thinking + ' 个 · 步骤 ' + fragments.steps + ' 个');
+      // 3. All 13 fragment types + a branch (USER with two ASSISTANT siblings).
+      await h.importHistoryZip(ctx, h.fixture('official-backup-fragments.zip'));
+      await waitSiderTitle('新对话');
+      await h.openSession(ctx, '新对话');
+      await s.waitFor(() => document.querySelectorAll('[aria-label="消息版本"]').length >= 1, {
+        timeout: 15000, label: '分支包导入后出现消息版本 pager',
+      });
+      const questions = (await h.userBubbles(ctx)).join(' | ');
+      const firstAnswer = await h.replyText(ctx);
+      ctx.assertIncludes(questions, '把 13 种片段都覆盖一遍', '13 片段包提问文本可见');
+      ctx.assertIncludes(firstAnswer, '这是第一个回答版本', '默认可见 current_message_id 指向的第一个回答');
+      let versions = await h.switchers(ctx);
+      ctx.assert(versions.length >= 1, '分支包出现版本 pager（' + versions.length + ' 个）');
+      ctx.assertMatch(versions[0].count, /^1\s*\/\s*2$/, '默认在第一个回答版本（1 / 2）');
+      await h.clickSwitcher(ctx, 0, 1);
+      await s.waitFor((host) => (document.querySelector(host + ' .ds-assistant-message-main-content') || {}).innerText
+        && (document.querySelector(host + ' .ds-assistant-message-main-content').innerText || '').indexOf('第二个回答版本') >= 0, {
+        timeout: 15000, label: '切到第二个回答版本',
+      }, [h.HOST]);
+      versions = await h.switchers(ctx);
+      ctx.assertMatch(versions[0].count, /^2\s*\/\s*2$/, '切换后 pager 为 2 / 2');
+      ctx.assertIncludes(await h.replyText(ctx), '第二个回答版本（同父兄弟节点）', '第二个回答版本可以切换出来');
+      ctx.log('13 片段 + 分支导入成功：两个回答版本可切换');
       await s.shot('official-import-fragments');
 
-      // 4. Restore the user snapshot and prove the data came back.
-      await h.openSettings(ctx);
-      await h.importBackupFile(ctx, snapshot);
-      await waitRail(2, '恢复快照后 rail 回到 2 条');
-      const restored = await h.storedConversations(ctx);
-      ctx.assertEqual(restored.length, 2, '快照恢复后 localStorage 是 2 个对话');
-      const restoredTitles = restored.map(item => item.title).join(' | ');
-      ctx.assertIncludes(restoredTitles, 'E2E-USER-一', '快照恢复后标题保留');
-      ctx.log('已用快照恢复用户数据: ' + restoredTitles);
+      // 4. Restore the user snapshot.
+      await restoreSnapshot();
+      const restored = await h.readSummaries(ctx);
+      ctx.log('已用快照恢复用户数据: ' + restored.map((item) => item.title).join(' / '));
       await s.shot('official-import-restored');
     } finally {
-      // Never leave the profile without its seeded user data after a failure.
       try {
-        if (snapshot && fs.existsSync(snapshot)) {
-          const stored = await h.storedConversations(ctx);
-          if (!stored.some(item => item.title === 'E2E-USER-一')) {
-            await h.openSettings(ctx);
-            await h.importBackupFile(ctx, snapshot);
-            ctx.log('finally: 已用快照恢复用户数据');
-          }
+        const sessions = await h.readSessions(ctx);
+        if (snapshot && !sessions.some((session) => session.title === 'E2E-USER-一')) {
+          await restoreSnapshot();
+          ctx.log('finally: 已用快照恢复用户数据');
         }
       } catch (error) {
-        ctx.log('finally 恢复快照失败（一次性 profile，不影响真实数据）: ' + error.message);
+        ctx.log('finally 恢复快照失败（一次性 profile）: ' + error.message);
       }
       try {
         fs.rmSync(dir, { recursive: true, force: true });

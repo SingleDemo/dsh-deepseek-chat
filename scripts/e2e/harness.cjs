@@ -43,6 +43,21 @@ const CREDENTIALS = process.env.DSH_E2E_CREDENTIALS
 
 const SETTINGS_KEY = 'dsh.deepseekChat.settings.v1';
 const CONVERSATIONS_KEY = 'dsh.deepseekChat.conversations.v1';
+/** The vendored chat-demo keeps its own localStorage keys (the panel UI reads these). */
+const DEMO_KEYS = {
+  apiKey: 'chat-demo:api-key',
+  locale: 'chat-demo:locale',
+  theme: 'chat-demo:theme-preference',
+  thinking: 'chat-demo:thinking',
+  search: 'chat-demo:search',
+  ttsVoice: 'chat-demo:tts-voice',
+  apiBaseUrl: 'chat-demo:api-base-url',
+  thinkingEffort: 'chat-demo:thinking-effort',
+};
+/** Root of the new panel UI (the vendored demo lives inside it). */
+const HOST_SELECTOR = '.dsc-demo-host';
+/** IndexedDB database the demo stores conversations in. */
+const DEMO_DB = 'chat-demo';
 const COOKIE_LIFETIME_MS = 12 * 60 * 60 * 1000;
 
 const VIEWPORT = { width: 1440, height: 900 };
@@ -520,54 +535,133 @@ function createSteps(page, options) {
   }
 
   /**
-   * Seed the plugin's localStorage settings, clearing old conversations, then
-   * reload so the panel mounts with them. The key comes from the environment;
-   * the returned object never contains it.
+   * Seed the demo's localStorage settings (and the legacy plugin keys, so any
+   * older check still finds them), clear the demo's IndexedDB conversations and
+   * reload. The API key comes from the environment; the returned object never
+   * contains it.
    */
   async function seedSettings(overrides) {
     if (!process.env.DEEPSEEK_API_KEY) {
       process.env.DEEPSEEK_API_KEY = readCredentials().apiKey;
     }
-    const wanted = Object.assign({
+    const options = overrides || {};
+    const demo = {
       apiKey: process.env.DEEPSEEK_API_KEY,
-      baseUrl: 'https://api.deepseek.com',
-      model: 'deepseek-flash',
-      thinking: 'high',
-      webSearch: true,
-      voice: 'stella',
-    }, overrides || {});
-    const reloadAfter = !(overrides && overrides.__noReload === true);
-    delete wanted.__noReload;
-    const payload = JSON.stringify(wanted);
-    if (reloadAfter) {
-      // The plugin flushes its in-memory conversations on unmount, which would
-      // overwrite a plain removeItem just before the reload. Clear storage at
-      // new-document time instead, after that flush and before the panel mounts.
-      const source = 'try { window.localStorage.removeItem(' + JSON.stringify(CONVERSATIONS_KEY)
-        + '); } catch (error) {} '
-        + 'window.localStorage.setItem(' + JSON.stringify(SETTINGS_KEY) + ', '
-        + JSON.stringify(payload) + ');';
-      const early = await page.send('Page.addScriptToEvaluateOnNewDocument', { source });
-      try {
-        await reload();
-      } finally {
-        await page.send('Page.removeScriptToEvaluateOnNewDocument', { identifier: early.identifier });
-      }
-    } else {
-      await evaluate((key, conversationsKey, text) => {
-        window.localStorage.removeItem(conversationsKey);
-        window.localStorage.setItem(key, text);
-        return true;
-      }, [SETTINGS_KEY, CONVERSATIONS_KEY, payload]);
-    }
-    return {
-      baseUrl: wanted.baseUrl,
-      model: wanted.model,
-      thinking: wanted.thinking,
-      webSearch: wanted.webSearch,
-      voice: wanted.voice,
-      apiKeyLength: wanted.apiKey.length,
+      locale: options.locale || 'zh-CN',
+      theme: options.theme || 'system',
+      thinking: options.thinking === undefined ? false : Boolean(options.thinking),
+      search: options.search === undefined ? false : Boolean(options.search),
+      ttsVoice: options.ttsVoice || 'stella',
+      apiBaseUrl: options.apiBaseUrl === undefined ? '' : String(options.apiBaseUrl),
+      thinkingEffort: options.thinkingEffort || 'high',
     };
+    const reloadAfter = options.__noReload !== true;
+    const storage = {
+      demo: {
+        [DEMO_KEYS.apiKey]: demo.apiKey,
+        [DEMO_KEYS.locale]: demo.locale,
+        [DEMO_KEYS.theme]: demo.theme,
+        [DEMO_KEYS.thinking]: String(demo.thinking),
+        [DEMO_KEYS.search]: String(demo.search),
+        [DEMO_KEYS.ttsVoice]: demo.ttsVoice,
+        [DEMO_KEYS.apiBaseUrl]: demo.apiBaseUrl,
+        [DEMO_KEYS.thinkingEffort]: demo.thinkingEffort,
+      },
+      legacy: JSON.stringify({
+        apiKey: demo.apiKey,
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-flash',
+        thinking: 'off',
+        webSearch: false,
+        voice: 'stella',
+        location: '',
+      }),
+    };
+
+    // Clear the demo IndexedDB before the reload so every check starts empty.
+    // Only open the existing database: opening a missing one would create it at
+    // version 1 without the stores the app expects.
+    const cleared = await evaluate((keys, host, dbName, legacySettingsKey, legacyConversationsKey, legacySettings) => {
+      return new Promise((resolve) => {
+        try {
+          for (const key of Object.keys(window.localStorage)) {
+            if (key.indexOf('chat-demo:') === 0) window.localStorage.removeItem(key);
+          }
+          for (const [key, value] of Object.entries(keys)) {
+            if (value === null) window.localStorage.removeItem(key);
+            else window.localStorage.setItem(key, value);
+          }
+          window.localStorage.removeItem(legacyConversationsKey);
+          window.localStorage.setItem(legacySettingsKey, legacySettings);
+        } catch (error) {
+          resolve('storage-error');
+          return;
+        }
+        const finish = async () => {
+          try {
+            const databases = indexedDB.databases ? await indexedDB.databases() : [];
+            if (!databases.some((item) => item.name === dbName)) {
+              resolve('absent');
+              return;
+            }
+            const request = indexedDB.open(dbName);
+            request.onerror = () => resolve('open-error');
+            request.onsuccess = () => {
+              const db = request.result;
+              const names = ['sessions', 'sessionSummaries', 'files', 'sessionsStaging', 'filesStaging']
+                .filter((name) => db.objectStoreNames.contains(name));
+              if (!names.length) {
+                db.close();
+                resolve('empty');
+                return;
+              }
+              const tx = db.transaction(names, 'readwrite');
+              for (const name of names) tx.objectStore(name).clear();
+              tx.oncomplete = () => {
+                db.close();
+                resolve('cleared');
+              };
+              tx.onerror = () => {
+                db.close();
+                resolve('clear-error');
+              };
+            };
+          } catch (error) {
+            resolve('error');
+          }
+        };
+        void finish();
+        return undefined;
+      });
+    }, [storage.demo, HOST_SELECTOR, DEMO_DB, SETTINGS_KEY, CONVERSATIONS_KEY, storage.legacy]);
+
+    if (reloadAfter) await reload();
+    return {
+      locale: demo.locale,
+      theme: demo.theme,
+      thinking: demo.thinking,
+      search: demo.search,
+      thinkingEffort: demo.thinkingEffort,
+      apiBaseUrl: demo.apiBaseUrl,
+      apiKeyLength: demo.apiKey.length,
+      cleared,
+    };
+  }
+
+  /** Write/refresh just the demo API key (still never returned). */
+  async function seedDemoKey() {
+    if (!process.env.DEEPSEEK_API_KEY) {
+      process.env.DEEPSEEK_API_KEY = readCredentials().apiKey;
+    }
+    await evaluate((key, value) => {
+      try {
+        window.localStorage.setItem(key, value);
+        return true;
+      } catch (error) {
+        return false;
+      }
+    }, [DEMO_KEYS.apiKey, process.env.DEEPSEEK_API_KEY]);
+    return { length: process.env.DEEPSEEK_API_KEY.length };
   }
 
   /** Click a selector after scrolling it into view; throws when it is missing. */
@@ -622,9 +716,9 @@ function createSteps(page, options) {
     return await clickText(/DeepSeek\s*(?:对话|chat)/i, { selector: 'body' });
   }
 
-  /** Wait for the entry to show up, click it, then wait for `.dsc-root`. */
+  /** Wait for the entry to show up, click it, then wait for the demo host. */
   async function openPanel() {
-    if (await evaluate(() => Boolean(document.querySelector('.dsc-root')))) {
+    if (await evaluate((selector) => Boolean(document.querySelector(selector)), [HOST_SELECTOR])) {
       return 'already-open';
     }
     await waitFor(() => {
@@ -632,7 +726,7 @@ function createSteps(page, options) {
       return /DeepSeek\s*(?:对话|chat)/i.test(text);
     }, { timeout: 30000, label: '侧栏出现「DeepSeek 对话」入口' });
     const label = await clickEntry();
-    await waitForSelector('.dsc-root', { timeout: 20000, label: '面板根节点 .dsc-root' });
+    await waitForSelector(HOST_SELECTOR, { timeout: 30000, label: '面板根节点 ' + HOST_SELECTOR });
     return label;
   }
 
@@ -673,13 +767,15 @@ function createSteps(page, options) {
     if (value !== text) throw new Error('输入内容没有写入 ' + selector + '（当前长度 ' + String(value || '').length + '）');
   }
 
-  /** Click send, waiting for the button to become enabled. */
+  /** Click the demo's send button (aria-label is localized) when it is ready. */
   async function send() {
-    await waitFor(() => {
-      const button = document.querySelector('.dsc-send');
-      return Boolean(button) && !button.disabled;
-    }, { timeout: 8000, label: '发送按钮可点击' });
-    await clickSelector('.dsc-send');
+    const selector = 'button[aria-label="发送"], button[aria-label="Send"]';
+    await waitFor((sel) => {
+      const button = document.querySelector(sel);
+      if (!button) return false;
+      return button.getAttribute('aria-disabled') !== 'true' && !button.disabled;
+    }, { timeout: 8000, label: '发送按钮可点击' }, [selector]);
+    await clickSelector(selector);
   }
 
   /** Poll an in-page predicate (optionally with args) until it is truthy. */
@@ -857,6 +953,7 @@ function createSteps(page, options) {
     navigate,
     reload,
     seedSettings,
+    seedDemoKey,
     /* interactions */
     clickSelector,
     clickText,
@@ -969,18 +1066,20 @@ async function openPage(options) {
     close: async () => {
       try {
         // Best effort: do not leave the key sitting in the throwaway profile.
-        await steps.evaluate((key) => {
+        await steps.evaluate((keys) => {
           try {
-            const raw = window.localStorage.getItem(key);
-            if (!raw) return false;
-            const data = JSON.parse(raw);
-            data.apiKey = '';
-            window.localStorage.setItem(key, JSON.stringify(data));
+            window.localStorage.removeItem(keys.demoKey);
+            const raw = window.localStorage.getItem(keys.legacyKey);
+            if (raw) {
+              const data = JSON.parse(raw);
+              data.apiKey = '';
+              window.localStorage.setItem(keys.legacyKey, JSON.stringify(data));
+            }
             return true;
           } catch (error) {
             return false;
           }
-        }, [SETTINGS_KEY]);
+        }, [{ demoKey: DEMO_KEYS.apiKey, legacyKey: SETTINGS_KEY }]);
         // Give the DOM storage write a moment to reach disk before Chrome exits.
         await sleep(300);
       } catch (error) { /* page may already be gone */ }
@@ -1045,5 +1144,8 @@ module.exports = {
   CREDENTIALS,
   SETTINGS_KEY,
   CONVERSATIONS_KEY,
+  DEMO_KEYS,
+  DEMO_DB,
+  HOST_SELECTOR,
   VIEWPORT,
 };

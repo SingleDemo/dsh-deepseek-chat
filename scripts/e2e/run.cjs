@@ -50,8 +50,11 @@ function loadChecks() {
     } catch (error) {
       throw new Error('装载检查项失败 ' + file + ': ' + error.message);
     }
-    if (!check || typeof check.run !== 'function') {
-      throw new Error('检查项 ' + file + ' 必须导出 { name, run(ctx) }');
+    if (!check || (!check.skip && typeof check.run !== 'function')) {
+      throw new Error('检查项 ' + file + ' 必须导出 { name, run(ctx) }（或 { skip: true, skipReason }）');
+    }
+    if (check.skip && !check.skipReason) {
+      throw new Error('检查项 ' + file + ' 标记 skip 时必须写 skipReason');
     }
     const name = check.name || path.basename(file, '.cjs');
     if (!/^[a-z0-9][a-z0-9-]*$/i.test(name)) {
@@ -197,7 +200,8 @@ function printList(checks) {
   const width = Math.max.apply(null, checks.map((check) => check.name.length));
   for (const check of checks) {
     const cost = check.cost === 'api' ? ' [真实 API]' : '';
-    console.log('  ' + check.name.padEnd(width) + '  ' + (check.description || '') + cost);
+    const state = check.skip ? ' [SKIP: ' + check.skipReason + ']' : '';
+    console.log('  ' + check.name.padEnd(width) + '  ' + (check.description || '') + cost + state);
   }
   console.log('\n共 ' + checks.length + ' 项。' + USAGE);
 }
@@ -224,6 +228,7 @@ async function main() {
     + '（headless Chrome → DSH GUI，截图写入 docs/e2e/）');
   let session = null;
   let passed = 0;
+  let skipped = 0;
   const failures = [];
 
   const shutdown = async () => {
@@ -246,6 +251,14 @@ async function main() {
       const check = selected[index];
       const cost = check.cost === 'api' ? '（会消耗一次真实 API 调用）' : '';
       console.log('\n[' + (index + 1) + '/' + selected.length + '] ' + check.name + ' — ' + (check.description || '') + cost);
+
+      // Skipped checks are documented instead of executed (usually a feature was
+      // removed or the interaction is too costly on the new DOM).
+      if (check.skip) {
+        skipped += 1;
+        console.log('  SKIP  ' + check.name + ' — ' + check.skipReason);
+        continue;
+      }
 
       // A headless renderer can die mid-suite (CDP socket closes). That is not a
       // product failure: reboot Chrome and retry the check once before giving up.
@@ -300,6 +313,7 @@ async function main() {
   }
 
   console.log('\n结果: ' + passed + ' 通过, ' + failures.length + ' 失败'
+    + (skipped ? ', ' + skipped + ' 跳过' : '')
     + (failures.length ? '（' + failures.join(', ') + '）' : ''));
   return failures.length ? 1 : 0;
 }

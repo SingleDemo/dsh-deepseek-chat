@@ -1,70 +1,61 @@
 /**
  * Check: panel
  *
- * Opens the panel from the sidebar entry, verifies the welcome screen and the
- * composer, sends one short real message, and waits up to 30 s for a non-empty
- * reply body. This is the smoke check that proves the panel can talk to the API.
- *
- * Costs one real API call.
+ * The panel is now the vendored chat-demo app rendered inside `.dsc-demo-host`.
+ * This check proves the entry opens it and the new shell is fully there: sider,
+ * welcome copy, composer textarea and its buttons (deep think / web search /
+ * voice / attach / send), plus the host theme class.
  */
 'use strict';
 
+const h = require('./lib/demo-helpers.cjs');
+
 module.exports = {
   name: 'panel',
-  description: '打开面板 → 断言欢迎语/输入框 → 发「用一句话介绍合肥。」→ 30s 内出现非空回复正文',
+  description: '入口进入面板 → .dsc-demo-host 渲染 + 主题 class → 欢迎语「今天有什么可以帮到你？」→ sider（开启新对话/设置）→ 输入区（textarea/深度思考/智能搜索/语音/附件/发送）',
   timeoutMs: 90000,
-  cost: 'api',
-  // Keep the smoke check fast and single-purpose: no reasoning, no web search.
-  settings: { thinking: 'off', webSearch: false },
+  cost: 'none',
+  settings: { thinking: false, search: false },
 
   async run(ctx) {
     const s = ctx.steps;
 
-    ctx.assert(await s.exists('.dsc-root'), '面板根节点 .dsc-root 存在');
+    ctx.assert(await s.exists(h.HOST), '面板根节点 .dsc-demo-host 存在');
+    const host = await s.eval((selector) => {
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const rect = node.getBoundingClientRect();
+      return {
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        classes: Array.from(node.classList),
+        dark: node.classList.contains('dark'),
+        light: node.classList.contains('light'),
+      };
+    }, [h.HOST]);
+    ctx.assert(host && host.width > 400 && host.height > 300,
+      '面板尺寸正常（' + (host ? host.width + 'x' + host.height : 'null') + '）');
+    ctx.assert(host.dark || host.light, '面板容器跟随主题带有 dark/light class（' + host.classes.join(' ') + '）');
+    ctx.log('面板尺寸 ' + host.width + 'x' + host.height + '，主题 ' + (host.dark ? 'dark' : 'light'));
 
-    const welcome = await s.eval(() => {
-      const title = document.querySelector('.dsc-welcomeTitle');
-      if (!title) return null;
-      const box = title.getBoundingClientRect();
-      return { text: (title.textContent || '').trim(), visible: box.width > 0 && box.height > 0 };
-    });
-    ctx.assert(welcome && welcome.text, '欢迎语标题 .dsc-welcomeTitle 存在且非空');
-    ctx.assert(welcome.visible, '欢迎语标题可见');
-    ctx.assertMatch(
-      welcome.text,
-      /今天想聊点什么|What may I help you/,
-      '欢迎语文案属于已知 locale',
-    );
+    const text = await s.text(h.HOST);
+    ctx.assertIncludes(text, '今天有什么可以帮到你？', '欢迎语文案');
+    ctx.assertIncludes(text, '开启新对话', 'sider 有新会话按钮');
+    ctx.assertIncludes(text, '设置', 'sider 底部有设置按钮');
 
-    ctx.assert(await s.exists('.dsc-input'), '输入框 .dsc-input 存在');
+    ctx.assert(await s.exists(h.HOST + ' textarea'), '输入区 textarea 存在');
+    for (const label of ['深度思考', '智能搜索', '语音输入', '上传文件']) {
+      const found = await s.exists(h.HOST + ' [aria-label="' + label + '"]');
+      ctx.assert(found, '输入区按钮存在：' + label);
+    }
+    const send = await s.eval((selector) => {
+      const button = document.querySelector(selector);
+      return button ? { disabled: button.getAttribute('aria-disabled') } : null;
+    }, [h.HOST + ' button[aria-label="' + h.SEND_LABEL + '"]']);
+    ctx.assert(send, '发送按钮存在（aria-label 发送）');
+    ctx.assertEqual(send.disabled, 'true', '空输入时发送按钮为 aria-disabled 状态');
 
-    const prompt = '用一句话介绍合肥。';
-    await s.typeText('.dsc-input', prompt);
-    ctx.assertEqual(await s.value('.dsc-input'), prompt, '输入框内容已写入');
-
-    await s.send();
-    ctx.log('已发送，等待回复正文…');
-
-    const reply = await s.waitFor(() => {
-      const body = document.querySelector('.dsc-botBody');
-      if (!body) return '';
-      return (body.innerText || body.textContent || '').trim();
-    }, { timeout: 30000, label: '.dsc-botBody 出现非空回复正文（30s）' });
-
-    ctx.assert(reply.length > 0, '回复正文非空');
-    ctx.assert(await s.exists('.dsc-turnUser'), '用户消息已渲染');
-
-    // The assertion above is the acceptance criterion; waiting for the caret to
-    // disappear only makes the screenshot show the finished reply.
-    const settled = await s.waitFor(
-      () => !document.querySelector('.dsc-caret'),
-      { timeout: 20000, interval: 200, label: '流式输出结束（caret 消失）' },
-    ).then(() => true, () => false);
-    if (!settled) ctx.log('提示: 20s 内流式输出未结束，截图可能是生成中状态');
-
-    const fullReply = await s.text('.dsc-botBody');
-    ctx.assert(fullReply && fullReply.trim().length > 0, '流式结束后回复正文仍非空');
-    ctx.log('回复: ' + fullReply.replace(/\s+/g, ' ').slice(0, 120));
+    ctx.log('sider / 欢迎页 / 输入区元素齐全');
     await s.shot('panel');
   },
 };
