@@ -155,6 +155,10 @@ window.__ModuleLoader__.load({
       voiceInputTimer: 'Recording {seconds}s',
       voiceInputStop: 'Stop and transcribe',
       voiceInputCancel: 'Transcribing… tap to cancel',
+      voiceEmpty: 'No speech was recognized',
+      voiceFailed: 'Speech recognition failed',
+      voiceNoDevice: 'No microphone was found',
+      voiceHttps: 'Voice input needs an HTTPS page',
       settingsLocation: 'Location',
       settingsLocationPlaceholder: 'e.g. Hefei, China',
       settingsLocationHint: 'Sent with each request so answers know your local time and place; empty is fine.',
@@ -310,6 +314,10 @@ window.__ModuleLoader__.load({
       voiceInputTimer: '录音中 {seconds}s',
       voiceInputStop: '结束录音并转写',
       voiceInputCancel: '正在转写，点击取消',
+      voiceEmpty: '未识别到语音内容',
+      voiceFailed: '语音识别失败，请稍后再试',
+      voiceNoDevice: '未检测到麦克风',
+      voiceHttps: '非 HTTPS 页面无法使用语音输入',
       settingsLocation: '位置信息',
       settingsLocationPlaceholder: '例如：中国 · 安徽 · 合肥',
       settingsLocationHint: '随每次请求发送，让回答知道你所在的位置与时区；留空也可以。',
@@ -726,10 +734,10 @@ window.__ModuleLoader__.load({
             const link = document.createElement('link');
             link.id = 'dsc-katex-css';
             link.rel = 'stylesheet';
-            link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css';
+            link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.css';
             document.head.appendChild(link);
           }
-          const ok = await loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js');
+          const ok = await loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.22/dist/katex.min.js');
           vendor.katex = ok && window.katex ? window.katex : null;
           notifyVendor();
         })();
@@ -740,13 +748,14 @@ window.__ModuleLoader__.load({
       if (vendor.mermaid) return;
       if (!vendor.mermaidLoading) {
         vendor.mermaidLoading = (async () => {
-          const ok = await loadScript('https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js');
+          const ok = await loadScript('https://cdn.jsdelivr.net/npm/mermaid@11.10.1/dist/mermaid.min.js');
           if (ok && window.mermaid) {
             const dark = isDarkPage();
             try {
               window.mermaid.initialize({
                 startOnLoad: false,
                 securityLevel: 'strict',
+                suppressErrorRendering: true,
                 theme: dark ? 'dark' : 'default',
                 fontFamily: 'inherit',
               });
@@ -813,6 +822,10 @@ window.__ModuleLoader__.load({
       });
     }
 
+    /** mermaid.render is not safe to run concurrently; queue the calls. */
+    let mermaidQueue = Promise.resolve();
+    const mermaidSeq = { value: 0 };
+
     /** One mermaid diagram with a 图表 / 代码 switch and its loading states. */
     function MermaidBlock(props) {
       const { code, t } = props;
@@ -826,26 +839,29 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         if (!libs.mermaid || !code) return undefined;
         let cancelled = false;
-        const id = 'dsc-mermaid-' + Math.random().toString(36).slice(2);
-        Promise.resolve()
-          .then(() => libs.mermaid.render(id, code))
-          .then((result) => {
-            if (cancelled) return;
-            const markup = typeof result === 'string' ? result : result && result.svg;
-            if (markup) {
-              setSvg(markup);
-              setError('');
-            } else {
+        const id = 'dsc-mermaid-' + (mermaidSeq.value += 1);
+        const timer = window.setTimeout(() => {
+          mermaidQueue = mermaidQueue
+            .then(() => libs.mermaid.render(id, code))
+            .then((result) => {
+              if (cancelled) return;
+              const markup = typeof result === 'string' ? result : result && result.svg;
+              if (markup) {
+                setSvg(markup);
+                setError('');
+              } else {
+                setError(t('mermaidRenderFail'));
+              }
+            })
+            .catch((reason) => {
+              if (cancelled) return;
               setError(t('mermaidRenderFail'));
-            }
-          })
-          .catch((reason) => {
-            if (cancelled) return;
-            setError(t('mermaidRenderFail'));
-            console.error('[deepseek-chat] mermaid render failed', reason);
-          });
+              console.error('[deepseek-chat] mermaid render failed', reason);
+            });
+        }, 300);
         return () => {
           cancelled = true;
+          window.clearTimeout(timer);
         };
       }, [libs.mermaid, code, t]);
       const head = h('div', { className: 'dsc-codeHead' },
@@ -2257,21 +2273,22 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-waiting {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 10px 2px;
+  gap: 6px;
+  height: 34px;
+  padding: 0 2px;
 }
 .dsc-waitingDot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--dsw-alias-label-secondary);
-  animation: dsc-bounce 1.2s ease-in-out infinite;
+  background: var(--dsw-alias-state-idle-primary);
+  animation: dsc-breathe 0.9s linear infinite;
 }
-.dsc-waitingDot:nth-child(2) { animation-delay: 0.15s; }
-.dsc-waitingDot:nth-child(3) { animation-delay: 0.3s; }
-@keyframes dsc-bounce {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
-  30% { transform: translateY(-4px); opacity: 1; }
+.dsc-waitingDot:nth-child(2) { animation-delay: 0.1s; }
+.dsc-waitingDot:nth-child(3) { animation-delay: 0.2s; }
+@keyframes dsc-breathe {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
 }
 .dsc-speakAction { display: inline-flex; align-items: center; gap: 5px; }
 .dsc-speakAction[data-playing='true'] { color: var(--dsw-alias-brand-primary); }
@@ -2279,13 +2296,13 @@ html[data-platform='darwin'] .dsc-root { padding-top: var(--dsh-frame-top-cleara
 .dsc-soundBar {
   fill: currentColor;
   transform-origin: center;
-  animation: dsc-bar 1s ease-in-out infinite;
+  animation: dsc-bar 1.6s ease-in-out infinite;
 }
-.dsc-soundBar:nth-child(2) { animation-delay: 0.2s; }
-.dsc-soundBar:nth-child(3) { animation-delay: 0.4s; }
-.dsc-soundBar:nth-child(4) { animation-delay: 0.6s; }
+.dsc-soundBar:nth-child(2) { animation-delay: 0.4s; }
+.dsc-soundBar:nth-child(3) { animation-delay: -0.8s; }
+.dsc-soundBar:nth-child(4) { animation-delay: -0.4s; }
 @keyframes dsc-bar {
-  0%, 100% { transform: scaleY(0.45); }
+  0%, 100% { transform: scaleY(0.35); }
   50% { transform: scaleY(1); }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -4151,7 +4168,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           baseUrl: baseUrl.trim() || DEFAULT_BASE_URL,
           model: model.trim() || DEFAULT_MODEL,
           voice,
-          location: location.trim(),
+          location: String(location).replace(/[,\\uff0c]/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 40),
         }));
       };
       return h('div', {
@@ -4326,6 +4343,7 @@ h3.dsc-mdHeading { font-size: 15px; }
       const abortRef = useRef(null);
       const saveTimerRef = useRef(null);
       const recRef = useRef(null);
+      const asrRef = useRef(null);
       const ttsRef = useRef(null);
       const fileRef = useRef(null);
       const importRef = useRef(null);
@@ -4633,6 +4651,8 @@ h3.dsc-mdHeading { font-size: 15px; }
       /** Send one recording to ASR and put the transcript in the draft. */
       const transcribe = useCallback(async (blob) => {
         setRecState('transcribing');
+        const controller = new AbortController();
+        asrRef.current = controller;
         try {
           const type = String(blob.type || '').toLowerCase();
           let audio = blob;
@@ -4641,12 +4661,15 @@ h3.dsc-mdHeading { font-size: 15px; }
             audio = await encodeWav(blob);
             filename = 'recording.wav';
           }
-          const text = await transcribeAudio({ settings, blob: audio, filename });
+          const text = await transcribeAudio({ settings, blob: audio, filename, signal: controller.signal });
           if (text && text.trim()) appendToDraft(text);
+          else setNotice(t('voiceEmpty'));
         } catch (error) {
-          setNotice((error && error.message) || t('transcribing'));
+          if (error && error.name === 'AbortError') return;
+          setNotice(t('voiceFailed') + (error && error.message ? ' · ' + error.message : ''));
         } finally {
-          setRecState('idle');
+          asrRef.current = null;
+          setRecState((state) => (state === 'transcribing' ? 'idle' : state));
         }
       }, [appendToDraft, settings, t]);
 
@@ -4662,8 +4685,17 @@ h3.dsc-mdHeading { font-size: 15px; }
 
       /** Start or stop one voice-input recording. */
       const toggleRecording = useCallback(async () => {
-        if (recState !== 'idle') {
+        if (recState === 'transcribing') {
+          if (asrRef.current) asrRef.current.abort();
+          setRecState('idle');
+          return;
+        }
+        if (recState === 'recording') {
           stopRecorder();
+          return;
+        }
+        if (window.isSecureContext === false) {
+          setNotice(t('voiceHttps'));
           return;
         }
         if (!String(settings.apiKey).trim()) {
@@ -4673,14 +4705,20 @@ h3.dsc-mdHeading { font-size: 15px; }
         }
         const media = window.navigator && window.navigator.mediaDevices;
         if (!media || !media.getUserMedia || typeof window.MediaRecorder === 'undefined') {
-          setNotice(t('recordFailed'));
+          setNotice(t('voiceNoDevice'));
           return;
         }
         let stream;
         try {
           stream = await media.getUserMedia({ audio: true });
         } catch (error) {
-          setNotice(error && error.name === 'NotAllowedError' ? t('recordDenied') : t('recordFailed'));
+          if (error && (error.name === 'NotAllowedError' || error.name === 'SecurityError')) {
+            setNotice(t('recordDenied'));
+          } else if (error && error.name === 'NotFoundError') {
+            setNotice(t('voiceNoDevice'));
+          } else {
+            setNotice(t('recordFailed'));
+          }
           return;
         }
         const mimeType = preferredRecordingType();
@@ -5241,9 +5279,12 @@ h3.dsc-mdHeading { font-size: 15px; }
               title: recState === 'recording'
                 ? t('voiceInputStop')
                 : recState === 'transcribing' ? t('voiceInputCancel') : t('voiceInput'),
+              'data-transcribing': recState === 'transcribing' ? 'true' : 'false',
               onClick: toggleRecording,
             },
-              recState === 'recording' ? h('span', { className: 'dsc-recDot' }) : h(MicIcon),
+              recState === 'recording'
+                ? h('span', { className: 'dsc-recDot' })
+                : recState === 'transcribing' ? h('span', { className: 'dsc-spinner' }) : h(MicIcon),
               recordingLabel ? h('span', { className: 'dsc-toolLabel' }, recordingLabel) : null),
             h('button', {
               type: 'button',

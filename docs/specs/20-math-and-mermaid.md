@@ -57,7 +57,12 @@ const ast = fromMarkdown(input, {
 | `\(…\)` | 行内 | LLM fork 新增；`\(` 前不能是反斜杠（`\\(` 不是公式起点） | `\(L_C\)` |
 | `\[` … `\]` | 块级 | LLM fork 新增；`\[` 独占一行开始，`\]` 独占一行结束 | 见 1.2 示例 |
 | `\$` | 任意 | 转义成字面 `$`，不开启公式 | `\$5 和 \$6` |
-| `\\$` | 任意 | `\\` 是“反斜杠”本身，后面的 `$` **仍是公式起点** | `\\$x$` → 字面 `\` + 公式 `x` |
+
+更精确的一条规则（上游 `mathText` 的 `previous` 构造：`code !== 92` 才允许作为行内公式起点）：
+
+* 只要 `$` 的**前一个源字符是反斜杠**（`\`，`0x5C`），这个 `$` 就不开启公式；因此 `\$` 一定是字面美元。
+* `\$$x$` = `\$` + `$x$`：先输出字面 `$`，再从第二个 `$` 开始一个行内公式（上游 readme 的 “Escapes work” 示例）。
+* `\\$x$` 里 `$` 前面仍是反斜杠，**不开启公式**（`\\` 只表示一个字面反斜杠）；`\(` 同理，`\\(` 不是公式起点。插件用正则实现时，两条分支都要加 `(?<!\\)`。
 
 块级示例（demo 解析器会把它变成 `math` 节点，`MarkdownAstRenderer.tsx:168-169` 交给 `MathBlock`）：
 
@@ -74,8 +79,7 @@ L_C = \frac{1}{2}\rho v^2 S C_L
 负例（不渲染，保持原文）：
 
 * 行内 `$$x$` / `$x$$`（序列长度不等）。
-* 行内 `$ $`（空公式；上游语法明确行内 math 不能为空）。
-* 行内 `$$ $$`（只有一个 `$` 算内容，同样为空）。
+* 行内 `$ $` 与 `$$ $$`（内容为空；上游语法明确行内 math 不能为空）。
 * 代码块与行内代码里的一切：`` `$x$` ``、` ```math … ``` ` 都按代码显示（解析器里代码优先级高于数学；`parse.ts:74-80` 也只对少数字符替换做特殊处理，不动 math）。
 
 补充规则（上游 readme，`micromark-extension-llm-math` 继承上游语法）：
@@ -140,7 +144,7 @@ export const ensureKatex = (): Katex | Promise<Katex> => {
 | 事实 | 出处 |
 | --- | --- |
 | 识别方式：代码块 info string 小写后等于 `mermaid` | `CodeBlock.tsx:82`（`infostring.toLowerCase() === 'mermaid'`） |
-| 解析器把 info string 作为 `node.lang || 'text'` 传给 CodeBlock | `MarkdownAstRenderer.tsx:194-202` |
+| 解析器把 info string 作为 `node.lang \|\| 'text'` 传给 CodeBlock | `MarkdownAstRenderer.tsx:194-202` |
 | 初始化配置：`{ theme: dark ? 'dark' : 'default', securityLevel: 'strict', startOnLoad: false, suppressErrorRendering: true }` | `src/services/markdown/mermaid.ts:36-41` |
 | 主题来源：组件读应用主题 `useTheme() === 'dark'` | `MermaidDiagram.tsx:15` |
 | 转义：把 `img` / `image` 标签的 `<` 换成 `&lt;`（整图范围一次替完） | `mermaid.ts:18` |
@@ -236,9 +240,9 @@ return <div className="md-mermaid-diagram" dangerouslySetInnerHTML={{ __html: re
 | DSH 把客户端 bundle 组合成脚本由宿主源提供；插件包内静态资产走 `/plugins/<pkg>/assets/<path>` | `dsh-client-modules/src/index.ts:233-241`、`705` |
 | **该资产路由只认 5 种图片 MIME**：`.svg` `image/svg+xml`、`.png`、`.webp`、`.jpg`、`.jpeg`；其他扩展（`.js`、`.css`、`.woff2`）返回 404 | `dsh-client-modules/src/assets.ts:17-23`、`42-46`、`index.ts:1246-1248` |
 | 包资产还要求 `package.json` 有 `./assets/*` 导出且目标固定为 `./lib/assets/*`（DSH 构建期约定） | `assets.ts:26-32` |
-| 所以「把 katex/mermaid 文件放进插件包、客户端 `fetch()` 读」**没有可用 URL**；唯一豁免是 `client.<name>.js` 形式的 chunk 路由（依赖 `?rev=`、属未公开契约，不建议） | `dsh-client-modules/src/index.ts:201`、`1161-1211` |
+| 所以「把 katex/mermaid 文件放进插件包、客户端 `fetch()` 读」**没有可用 URL**；唯一豁免是 `client.<name>.js` 形式的 chunk 路由（依赖 `?rev=`、属未公开契约，不建议） | `dsh-client-modules/src/index.ts:201`、`1161-1212` |
 | DSH 文档明确：浏览器侧 React 来自模块表，“no duplicate React installation, CDN script, or UMD search is needed” | `dsh-agent-preset/skills/dsh-doc/references/ui-plugin.md:9` |
-| 页面没有注入 CSP：检索 `dsh-host-webserver`（119 文件）与 `dsh-desktop-host` 等（95 文件）均无 `Content-Security-Policy` / `onHeadersReceived`；唯一特例是直接打开 SVG 资产时加 `script-src 'none'` | `dsh-client-modules/src/index.ts:1255`（检索结果见本文附录） |
+| 页面上没有注入 CSP：第一批检索 `dsh-host-webserver` / `dsh-web-frontend` / `dsh-web-app` / `dsh-web`（119 个文件），第二批检索 `dsh-desktop-host` / `dsh-client-connection` / `dsh-app-boot` / `dsh-client-hmr`（95 个文件），均无 `Content-Security-Policy` / `onHeadersReceived` / `webRequest`；唯一特例是直接打开 SVG 资产时加 `script-src 'none'` | 检索结果见本文附录；`dsh-client-modules/src/index.ts:1255` |
 | 页面 origin 是 `http://127.0.0.1:55160`（HTTP 回环，Chromium/Electron）。从 HTTP 页面加载 HTTPS 外部脚本不构成混合内容拦截（混合内容规则只约束 HTTPS 页面加载 HTTP 资源） | 运行时上下文；Chromium 规范 |
 | 本机可达 jsdelivr：以下 URL 实测 HTTP 200 —— `katex@0.16.22/dist/katex.min.js`、`.../katex.min.css`、`.../contrib/mhchem.min.js`、`mermaid@11.10.1/dist/mermaid.min.js` | 本次实测（2026-11-16）；`mermaid.min.js` 末尾是 `globalThis["mermaid"] = …default;`，KaTeX 是 `e.katex=t()`，全局名分别是 `mermaid` / `katex` |
 | **但页面是否真的能出网没有 100% 保证**：企业代理/内网可能只放行 `api.deepseek.com`；DSH 自身的 `web_fetch` 走 Host，不代表渲染进程能访问 CDN | 推论；首次接入需按 4.4 实测一次 |
@@ -317,35 +321,41 @@ return <div className="md-mermaid-diagram" dangerouslySetInnerHTML={{ __html: re
 | 数学组件 | `MathSpan({tex, display})` | 参数改 `{ throwOnError:true, strict:false, displayMode:Boolean(display) }`；加 per-instance last-good；失败回退原文而不是 `<code>`；类名 `.dsc-mathInline` / `.dsc-mathBlock` |
 | 行内解析 | `INLINE_PATTERN` + `renderInline` | 增加 `\(...\)`、`$...$` 分支（在 `$` 分支之前判断转义）；strong/em/del 内部改为递归 `renderInline`，让 `**$x$**` 能出公式 |
 | 块级解析 | `parseBlocks` | 在代码围栏之后、标题之前识别 `$$` 与 `\[` 块；`startsBlock` 增加数学围栏；产出 `{type:'math', text}` |
-| markdown 渲染 | `renderMarkdown(source, t, keyBase, sources)` | 增加第 5 参 `streaming`；`math` 块 → `MathBlock`；mermaid 代码块 → `MermaidBlock`（现在已有分支，需传 `streaming`） |
+| markdown 渲染 | `renderMarkdown(source, t, keyBase, sources)` | 增加第 5 参 `streaming`；`math` 块 → `MathSpan display:true`；mermaid 代码块 → `MermaidBlock`（现在已有分支，需传 `streaming`） |
 | 代码块 | `CodeBlock(props)` | 增加 `streaming`；mermaid 时渲染 `MermaidBlock`（含两个按钮），不要套用 `.dsc-codeToggle` 折叠 |
 | 图表组件 | `MermaidBlock`（已有雏形） | 改成 1.7 的状态机：`result {svg, failedCode}`、`latestCodeRef`、100 ms 合并、前缀回退、串行队列、每次 `initialize` |
 | 唯一 id | 模块级 `mermaidSeq` | `'dsc-mermaid-' + (mermaidSeq++)`；不要用 `Math.random()`（并发时仍可能撞、也不可复现） |
 | 排队 | 模块级 `mermaidQueue = Promise.resolve()` | 所有 `initialize+render` 都排进队列；单个失败不影响后续 |
-| 样式 | `CSS` 模板字符串（`const CSS = \`` 段） | 新增/覆盖 `.dsc-mathInline`、`.dsc-mathBlock`、`.dsc-mathRaw`、`.dsc-mermaid`、`.dsc-mermaidState`、`.dsc-codeSeg`、`.dsc-codeSegBtn`；只允许 `--dsw-*` / `--dsh-*` token |
+| 样式 | 单文件 `client.js` 里那段 CSS 模板字符串（`const CSS` 变量） | 新增/覆盖 `.dsc-mathInline`、`.dsc-mathBlock`、`.dsc-mathRaw`、`.dsc-mermaid`、`.dsc-mermaidState`、`.dsc-codeSeg`、`.dsc-codeSegBtn`；只允许 `--dsw-*` / `--dsh-*` token |
 
 ### 3.2 解析层改法（可照抄）
 
 **行内**（`renderInline`，在 `INLINE_PATTERN` 里加两个分支，放在链接/强调之前即可，代码 token 会自然先吃掉代码内内容）：
 
 ```js
-// 追加到 INLINE_PATTERN 末尾（注意顺序：代码、图片、链接在前）
-|(\$\$[\s\S]+?\$\$)|(?<!\\)\$([^$\n]+?)\$(?!\$)|\\\(([\s\S]+?)\\\)|\\\[([\s\S]+?)\\\]
+// 追加到 INLINE_PATTERN（注意顺序：代码、图片、链接在前；数学只处理“行内”构造）
+|(\$\$[\s\S]+?\$\$)|(?<![\\$])\$(?!\$)([^$\n]+?)\$(?!\$)|(?<!\\)\\\(([\s\S]+?)\\\)|
 ```
+
+`$` 分支必须同时满足“前面不是 `\`/`$`、后面不是 `$`”，否则 `$$x$`、`$x$$` 会被误当成公式（demo 里它们保持原文：`$` 序列是贪婪的，长度不等就不成立）。
 
 匹配后：
 
 ```js
-if (token.charAt(0) === '$' || token.indexOf('\\(') === 0 || token.indexOf('\\[') === 0) {
-  const display = token.indexOf('$$') === 0 || token.indexOf('\\[') === 0;
+if (token.charAt(0) === '$' || token.indexOf('\\(') === 0) {
+  const display = false;              // 行内构造永远是 displayMode:false；$$…$$ 出现在段中时也是行内 math
   const tex = token
-    .replace(/^\$\$?|\\[\(\[]/, '')
-    .replace(/\$\$?$|\\[\)\]]$/, '')
+    .replace(/^\$\$?/, '')
+    .replace(/\$\$?$/, '')
+    .replace(/^\\\(/, '')
+    .replace(/\\\)$/, '')
     .trim();
   if (tex) nodes.push(h(MathSpan, { key, tex, display }));
   else nodes.push(token);            // 空公式：保持原文
 }
 ```
+
+注意：**行内**只加 `$…$`、`$$…$$`、`\(…\)` 三种；`\[…\]` 是 flow 构造，只在行首成立（`mathTexFlow` 是 flow 扩展），所以 `\[` 的中线出现保持原文，不要塞进行内正则。
 
 同时把 `strong` / `em` / `del` 分支从“纯字符串”改成递归：
 
@@ -373,10 +383,12 @@ if (mathOpen) {
 
 并在 `startsBlock(line)` 里追加 `/^\s*(\$\$|\\\[)/`，避免数学块被并进上一段。
 
-`renderMarkdown` 里加分支：
+> 简化说明：这里只把**独占一行**的 `$$` / `\[` 当块级（demo 的 flow 构造理论上允许同一行带 meta，且 `$$` 出现在行首会优先按 flow 解析）。插件沿用“行首独占 + 闭合可缺省”的简化规则即可，行内的 `$$…$$` 仍走 3.2 的行内分支；这是对 demo 的可接受简化，写进实现注释。
+
+`renderMarkdown` 里加分支（块级复用 `MathSpan` 的 `display:true`，与 demo 的 `MathBlock` 一样输出 `<span class="katex-display">`）：
 
 ```js
-if (block.type === 'math') return h(MathBlock, { key, tex: block.text });
+if (block.type === 'math') return h(MathSpan, { key, tex: block.text, display: true });
 ```
 
 **不解析数学的位置**：代码围栏（`parseBlocks` 单独成 `code` 块）、行内代码（`INLINE_PATTERN` 的 code 分支先命中）、HTML 注释等原始 HTML 片段（当前解析器整体不解析 HTML，保持现状即可）。
@@ -586,7 +598,7 @@ CSS（只加在 `CSS` 模板串里；token 全部来自 DSH）：
 
 ### 4.2 测试文本
 
-```markdown
+````markdown
 行内：质能方程 $E = mc^2$，等价写法 \(E = mc^2\)，价格 \$5 到 \$6。
 
 块级：
@@ -615,7 +627,7 @@ flowchart LR
 flowchart LR
   A[坏语法 -->
 ```
-```
+````
 
 > 注意最后一段故意不合法：结束后应显示「渲染失败」，并且点「代码」能看到原文。
 

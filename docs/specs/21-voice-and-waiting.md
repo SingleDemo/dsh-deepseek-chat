@@ -165,15 +165,15 @@ en 字典同步补（可参考 demo `src/i18n/en.ts:159-169`）。旧的 `listen
 
 | 落点（现有符号） | 现状 | 目标 |
 | --- | --- | --- |
-| `recState`（`'idle' | 'recording' | 'transcribing'`） | 已存在，三态 | 保持三态；**把 `setRecState('recording')` 提前到发起 `getUserMedia` 之前**，并加 `startingRef`/`opToken`，实现“授权弹窗未决时点击=取消” |
+| `recState`（`'idle'` / `'recording'` / `'transcribing'`） | 已存在，三态 | 保持三态；**把 `setRecState('recording')` 提前到发起 `getUserMedia` 之前**，并加 `startingRef`/`opToken`，实现“授权弹窗未决时点击=取消” |
 | `toggleRecording` | `if (recState !== 'idle') { stopRecorder(); return; }`；转写中这一步是空操作（`recRef` 已空） | 分状态：`recording` → 结束并转写；`transcribing` → **取消**（abort ASR + `setRecState('idle')`）；`idle` → 开始 |
 | `transcribe(blob)` | `setRecState('transcribing')` → `transcribeAudio(...)`（**没传 signal**）→ `finally setRecState('idle')` | `transcribeAudio` 增加 `signal`；用 `AbortController` + 令牌；取消后不写草稿、不 setNotice；`finally` 只在令牌一致时回 idle |
 | `stopRecorder` | 清 timer、`recorder.stop()`（onstop 里转写） | 保持；取消路径要额外 `stream.getTracks().stop()` + 清 chunks + 不触发转写 |
 | `recSeconds` / timer | 500 ms 刷新，`>= RECORDING_LIMIT_SECONDS` 时 `setNotice(recordTooLong)` + stop | 保留 110 s 上限；文案换成 `voiceInputLimitReached`；到上限后自动结束并转写（与 demo 同一行为） |
 | `RECORDING_LIMIT_SECONDS` | `= 110` | **保留 110**（ASR 服务上限 120 s，留 10 s 编码/上传余量）；在注释里写明这是对 demo 120 s 的有意偏离及理由 |
 | `notice`（`setNotice`，4 s 自动消失） | 录音错误走面板内 notice 行 | 继续用 notice 承载这些提示（等价于 demo 的 toast；时长可保持 4 s，不必强改 3 s）；**文案必须是 2.1 的逐字值** |
-| 安全上下文 | 无判断 | 新增 `const VOICE_AVAILABLE = typeof window === 'undefined' || window.isSecureContext;`；不可用时按钮 `disabled` + `title=t('voiceInputRequiresHttps')`；`toggleRecording` 直接 return |
-| 设备能力 | 有 `!media || !getUserMedia || !MediaRecorder` 检查 → `recordFailed` | 保留检查，但文案按 2.1 改为 `voiceInputFailed`；`getUserMedia` 的错误映射按 1.3 的三分支（NotAllowed/Security、NotFound、其余） |
+| 安全上下文 | 无判断 | 新增 `const VOICE_AVAILABLE = typeof window === 'undefined' \|\| window.isSecureContext;`；不可用时按钮 `disabled` + `title=t('voiceInputRequiresHttps')`；`toggleRecording` 直接 return |
+| 设备能力 | 有 `!media \|\| !getUserMedia \|\| !MediaRecorder` 检查 → `recordFailed` | 保留检查，但文案按 2.1 改为 `voiceInputFailed`；`getUserMedia` 的错误映射按 1.3 的三分支（NotAllowed/Security、NotFound、其余） |
 | 卸载/切会话 | 有 `stopRecorder`，但没有 abort ASR | 组件卸载 effect 里同时 `abortController.abort()`；切会话（`activeId` 变化）也取消，避免转写结果落到另一个会话的草稿 |
 
 ### 2.3 按钮视觉（CSS）
