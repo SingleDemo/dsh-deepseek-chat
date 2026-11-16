@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="DeepSeek chat">
+  <defs>
+    <linearGradient id="dsChatIconBody" x1="10" y1="4" x2="54" y2="60" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6E8CFF"/>
+      <stop offset="0.55" stop-color="#4D6BFE"/>
+      <stop offset="1" stop-color="#2B44D6"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="17" fill="url(#dsChatIconBody)"/>
+  <path
+    d="M20 20.5h24a5.5 5.5 0 0 1 5.5 5.5v13.2a5.5 5.5 0 0 1-5.5 5.5H31.4L22.9 51.2a1 1 0 0 1-1.63-.78v-5.72H20a5.5 5.5 0 0 1-5.5-5.5V26A5.5 5.5 0 0 1 20 20.5Z"
+    fill="#FFFFFF" fill-opacity="0.96"/>
+  <g fill="#3A56E0">
+    <circle cx="25.4" cy="32.6" r="2.5"/>
+    <circle cx="32" cy="32.6" r="2.5"/>
+    <circle cx="38.6" cy="32.6" r="2.5"/>
+  </g>
+</svg>

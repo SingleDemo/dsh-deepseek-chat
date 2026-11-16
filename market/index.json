@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "title": {
+    "en": "DeepSeek Chat plugin",
+    "zh": "DeepSeek 对话插件"
+  },
+  "description": {
+    "en": "A DeepSeek chat panel for the DeepSeek Harness Web GUI, built from the upstream chat demo.",
+    "zh": "DeepSeek Harness 的对话面板插件，界面来自上游 chat-demo。"
+  },
+  "plugins": [
+    {
+      "name": "dsh-deepseek-chat",
+      "title": {
+        "en": "AI Chat",
+        "zh": "AI Chat"
+      },
+      "description": {
+        "en": "Chat with DeepSeek inside Harness: the official demo UI, DeepSeek account login, branch editing, and official history ZIP import/export.",
+        "zh": "在 Harness 里和 DeepSeek 对话：原版 demo 界面、DeepSeek 账号免 Key 登录、分支编辑、官方历史对话 ZIP 双向导入导出。"
+      },
+      "icon": "icons/icon.svg",
+      "author": "SingleDemo",
+      "homepage": "https://github.com/SingleDemo/dsh-deepseek-chat#readme",
+      "repository": {
+        "url": "https://github.com/SingleDemo/dsh-deepseek-chat"
+      },
+      "versions": [
+        {
+          "version": "1.1.0",
+          "publishTimestamp": 1794846597,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/SingleDemo/dsh-deepseek-chat",
+            "commit": "6d5589783de94c011dc465271d2687e69cf00801"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.3 <0.3.0"
+          }
+        }
+      ]
+    }
+  ]
+}
