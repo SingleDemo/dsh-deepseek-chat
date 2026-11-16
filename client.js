@@ -1071,6 +1071,30 @@ window.__ModuleLoader__.load({
       return 'FINISHED';
     }
 
+    /** Parent-first depth-first order over the whole message tree, like numberMessages. */
+    function numberTree(messages, rootId) {
+      const list = messages || [];
+      const byParent = new Map();
+      for (let i = 0; i < list.length; i += 1) {
+        const key = list[i].parentId || '';
+        if (!byParent.has(key)) byParent.set(key, []);
+        byParent.get(key).push(list[i]);
+      }
+      const ordered = [];
+      const seen = new Set();
+      const walk = (node) => {
+        if (!node || seen.has(node.id)) return;
+        seen.add(node.id);
+        ordered.push(node);
+        const children = byParent.get(node.id) || [];
+        for (let i = 0; i < children.length; i += 1) walk(children[i]);
+      };
+      const root = list.find((node) => node.id === rootId) || list.find((node) => !node.parentId);
+      if (root) walk(root);
+      for (let i = 0; i < list.length; i += 1) walk(list[i]);
+      return ordered;
+    }
+
     /** Every conversation as archive entries, ordered the way the official importer requires. */
     function buildOfficialArchive(conversations) {
       const entries = [{ name: 'manifest.json', bytes: encodeJsonBytes({ export_format_version: OFFICIAL_FORMAT_VERSION }) }];
@@ -1079,11 +1103,13 @@ window.__ModuleLoader__.load({
       for (let s = 0; s < sessions.length; s += 1) {
         const conversation = sessions[s];
         const messages = conversation.messages || [];
+        const ordered = numberTree(messages, conversation.rootId);
         const ids = new Map();
-        for (let i = 0; i < messages.length; i += 1) ids.set(messages[i].id, i + 1);
-        const officialMessages = messages.map((node, position) => ({
+        for (let i = 0; i < ordered.length; i += 1) ids.set(ordered[i].id, i + 1);
+        const path = visiblePath(conversation);
+        const officialMessages = ordered.map((node) => ({
           id: ids.get(node.id),
-          parent_id: position === 0 ? null : ids.get(messages[position - 1].id),
+          parent_id: node.parentId && ids.get(node.parentId) ? ids.get(node.parentId) : null,
           role: node.role === 'user' ? 'USER' : 'ASSISTANT',
           status: node.role === 'user' ? 'FINISHED' : toOfficialStatus(node),
           thinking_enabled: node.role === 'assistant'
@@ -1098,7 +1124,7 @@ window.__ModuleLoader__.load({
           id: conversation.id,
           title: conversation.title || null,
           pinned: false,
-          current_message_id: messages.length ? ids.get(messages[messages.length - 1].id) : 0,
+          current_message_id: path.length && ids.get(path[path.length - 1].id) ? ids.get(path[path.length - 1].id) : 0,
           inserted_at: isoTime(conversation.createdAt),
           updated_at: isoTime(conversation.updatedAt),
           messages: officialMessages,
@@ -1184,30 +1210,24 @@ window.__ModuleLoader__.load({
       return blocks;
     }
 
-    /** One official session file back into our conversation shape. */
+    /** One official session file back into our message tree (branches included). */
     function fromOfficialSession(session) {
       if (!session || typeof session.id !== 'string' || !Array.isArray(session.messages)) return null;
-      const nodes = session.messages.filter((message) => message && typeof message.id === 'number');
-      if (!nodes.length) return null;
-      const byId = new Map();
-      for (let i = 0; i < nodes.length; i += 1) byId.set(nodes[i].id, nodes[i]);
-      const roots = nodes.filter((message) => message.parent_id === null || message.parent_id === undefined);
-      const path = [];
-      const guard = new Set();
-      let cursor = roots.length ? roots[0] : null;
-      while (cursor && !guard.has(cursor.id)) {
-        guard.add(cursor.id);
-        path.push(cursor);
-        const next = nodes.find((message) => message.parent_id === cursor.id);
-        cursor = next || null;
-      }
-      const messages = [];
-      for (let i = 0; i < path.length; i += 1) {
-        const official = path[i];
-        const insertedAt = Date.parse(official.inserted_at);
+      const official = session.messages.filter((message) => message && typeof message.id === 'number');
+      if (!official.length) return null;
+      const ids = new Map();
+      for (let i = 0; i < official.length; i += 1) ids.set(official[i].id, uid());
+      const nodes = [];
+      for (let i = 0; i < official.length; i += 1) {
+        const message = official[i];
+        const insertedAt = Date.parse(message.inserted_at);
         const when = Number.isNaN(insertedAt) ? Date.now() : insertedAt;
-        if (official.role === 'USER') {
-          const fragments = Array.isArray(official.fragments) ? official.fragments : [];
+        const parentId = message.parent_id === null || message.parent_id === undefined
+          ? null
+          : (ids.get(message.parent_id) || null);
+        const id = ids.get(message.id);
+        if (message.role === 'USER') {
+          const fragments = Array.isArray(message.fragments) ? message.fragments : [];
           let text = '';
           const attachments = [];
           for (let j = 0; j < fragments.length; j += 1) {
@@ -1227,24 +1247,60 @@ window.__ModuleLoader__.load({
               }
             }
           }
-          messages.push({ id: uid(), role: 'user', text, attachments, createdAt: when });
+          nodes.push({
+            id,
+            role: 'user',
+            parentId,
+            selectedChildId: null,
+            createdAt: when,
+            text,
+            attachments,
+          });
           continue;
         }
-        const status = official.status === 'FAILED' ? 'error'
-          : (official.status === 'CONTENT_FILTER' ? 'done'
-            : (official.status === 'INCOMPLETE' ? 'stopped' : 'done'));
-        messages.push({
-          id: uid(),
+        const status = message.status === 'FAILED' ? 'error'
+          : (message.status === 'CONTENT_FILTER' ? 'done'
+            : (message.status === 'INCOMPLETE' ? 'stopped' : 'done'));
+        nodes.push({
+          id,
           role: 'assistant',
-          blocks: fromOfficialFragments(official.fragments, uid(), when),
-          status,
-          stopReason: official.status === 'CONTENT_FILTER' ? 'refusal'
-            : (official.status === 'INCOMPLETE' ? 'max_tokens' : 'end_turn'),
-          error: '',
+          parentId,
+          selectedChildId: null,
           createdAt: when,
+          blocks: fromOfficialFragments(message.fragments, id, when),
+          status,
+          stopReason: message.status === 'CONTENT_FILTER' ? 'refusal'
+            : (message.status === 'INCOMPLETE' ? 'max_tokens' : 'end_turn'),
+          error: '',
         });
       }
-      if (!messages.length) return null;
+      // Rebuild the selected path from current_message_id so branches stay reachable.
+      const byOfficialId = new Map();
+      for (let i = 0; i < official.length; i += 1) byOfficialId.set(official[i].id, official[i]);
+      const chain = [];
+      let cursorId = typeof session.current_message_id === 'number' ? session.current_message_id : null;
+      const guard = new Set();
+      while (cursorId !== null && byOfficialId.has(cursorId) && !guard.has(cursorId)) {
+        guard.add(cursorId);
+        const message = byOfficialId.get(cursorId);
+        chain.unshift(message.id);
+        cursorId = message.parent_id === null || message.parent_id === undefined ? null : message.parent_id;
+      }
+      let rootId = nodes.length ? nodes[0].id : null;
+      if (chain.length) {
+        for (let i = 0; i < chain.length; i += 1) {
+          const id = ids.get(chain[i]);
+          const parentOfficial = byOfficialId.get(chain[i]).parent_id;
+          if (parentOfficial !== null && parentOfficial !== undefined && ids.has(parentOfficial)) {
+            const parent = nodes.find((node) => node.id === ids.get(parentOfficial));
+            if (parent) parent.selectedChildId = id;
+          } else if (rootId === null) {
+            rootId = id;
+          }
+        }
+        rootId = ids.get(chain[0]);
+      }
+      if (!rootId) rootId = nodes.find((node) => !node.parentId) ? nodes.find((node) => !node.parentId).id : nodes[0].id;
       const createdAt = Date.parse(session.inserted_at);
       const updatedAt = Date.parse(session.updated_at);
       return {
@@ -1252,11 +1308,12 @@ window.__ModuleLoader__.load({
         title: typeof session.title === 'string' ? session.title : '',
         createdAt: Number.isNaN(createdAt) ? Date.now() : createdAt,
         updatedAt: Number.isNaN(updatedAt) ? Date.now() : updatedAt,
-        messages,
+        rootId,
+        messages: nodes,
       };
     }
 
-    /** Keep only characters that survive a round trip through the archive. */
+    /** Keep only characters that survive a round trip through the archive. */    /** Keep only characters that survive a round trip through the archive. */
     function sinceSafe(value) {
       const text = String(value || '');
       return text || uid();
@@ -1425,6 +1482,8 @@ window.__ModuleLoader__.load({
           out.push({
             type: 'text',
             text: typeof item.text === 'string' ? item.text : '',
+            isTemplate: item.isTemplate === true ? true : undefined,
+            tipStyle: typeof item.tipStyle === 'string' && item.tipStyle ? item.tipStyle : undefined,
             citations: Array.isArray(item.citations)
               ? item.citations.filter((c) => c && typeof c.url === 'string')
                 .map((c) => ({ url: c.url, title: typeof c.title === 'string' ? c.title : '' }))
@@ -1447,6 +1506,7 @@ window.__ModuleLoader__.load({
         } else if (item.type === 'sources') {
           out.push({
             type: 'sources',
+            kind: item.kind === 'image' ? 'image' : undefined,
             items: Array.isArray(item.items)
               ? item.items.filter((s) => s && typeof s.url === 'string')
                 .map((s) => ({
@@ -1460,7 +1520,22 @@ window.__ModuleLoader__.load({
               : [],
           });
         } else if (item.type === 'fetch') {
-          out.push({ type: 'fetch', urls: Array.isArray(item.urls) ? item.urls.filter((u) => typeof u === 'string') : [] });
+          out.push({
+            type: 'fetch',
+            urls: Array.isArray(item.urls) ? item.urls.filter((url) => typeof url === 'string') : [],
+            items: Array.isArray(item.items)
+              ? item.items
+                .filter((entry) => entry && typeof entry.url === 'string')
+                .map((entry) => ({
+                  url: entry.url,
+                  title: typeof entry.title === 'string' ? entry.title : '',
+                  site: typeof entry.site === 'string' ? entry.site : '',
+                  date: typeof entry.date === 'string' ? entry.date : '',
+                  status: typeof entry.status === 'string' ? entry.status : '',
+                  signature: typeof entry.signature === 'string' ? entry.signature : '',
+                }))
+              : undefined,
+          });
         }
       }
       return out;
@@ -1514,6 +1589,88 @@ window.__ModuleLoader__.load({
       return groups.filter((group) => group.items.length);
     }
 
+    /* ------------------------------------------------------- message tree */
+
+    /** Sanitize one stored message into a tree node. */
+    function sanitizeNode(raw) {
+      if (!raw || (raw.role !== 'user' && raw.role !== 'assistant')) return null;
+      if (raw.role === 'user') {
+        return {
+          id: typeof raw.id === 'string' ? raw.id : uid(),
+          role: 'user',
+          parentId: typeof raw.parentId === 'string' ? raw.parentId : null,
+          selectedChildId: typeof raw.selectedChildId === 'string' ? raw.selectedChildId : null,
+          createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : 0,
+          // `content` is the shape stored before attachments existed.
+          text: typeof raw.text === 'string' ? raw.text : (typeof raw.content === 'string' ? raw.content : ''),
+          attachments: sanitizeAttachments(raw.attachments),
+        };
+      }
+      const blocks = Array.isArray(raw.blocks) ? sanitizeBlocks(raw.blocks) : legacyBlocks(raw);
+      return {
+        id: typeof raw.id === 'string' ? raw.id : uid(),
+        role: 'assistant',
+        parentId: typeof raw.parentId === 'string' ? raw.parentId : null,
+        selectedChildId: typeof raw.selectedChildId === 'string' ? raw.selectedChildId : null,
+        createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : 0,
+        blocks,
+        stopReason: typeof raw.stopReason === 'string' ? raw.stopReason : '',
+        status: raw.status === 'done' || raw.status === 'stopped' || raw.status === 'error'
+          ? raw.status
+          : (raw.stopped === true ? 'stopped' : (blocks.length ? 'done' : 'error')),
+        error: typeof raw.error === 'string' ? raw.error : '',
+      };
+    }
+
+    /**
+     * Turn a linear list (all conversations stored before the tree model, plus
+     * the old `versions` slots) into a tree: one chain, with the archived
+     * versions as sibling replies.
+     */
+    function migrateLinearMessages(list) {
+      const nodes = [];
+      let parent = null;
+      for (let i = 0; i < list.length; i += 1) {
+        const raw = list[i];
+        if (!raw) continue;
+        const base = sanitizeNode(raw);
+        if (!base) continue;
+        if (base.role === 'user') {
+          base.parentId = parent ? parent.id : null;
+          nodes.push(base);
+          if (parent) parent.selectedChildId = base.id;
+          parent = base;
+          continue;
+        }
+        const slots = Array.isArray(raw.versions) && raw.versions.length
+          ? raw.versions.map((slot) => sanitizeNode(Object.assign({}, raw, {
+            versions: undefined,
+            blocks: slot && slot.blocks,
+            status: slot && slot.status,
+            stopReason: slot && slot.stopReason,
+            error: slot && slot.error,
+            id: undefined,
+          })) || base)
+          : [base];
+        const activeIndex = typeof raw.versionIndex === 'number' && raw.versionIndex < slots.length
+          ? raw.versionIndex
+          : slots.length - 1;
+        let first = null;
+        for (let s = 0; s < slots.length; s += 1) {
+          const node = slots[s];
+          node.parentId = base.parentId;
+          nodes.push(node);
+          if (!first) first = node;
+        }
+        if (parent) {
+          const active = slots[activeIndex] || first;
+          parent.selectedChildId = active.id;
+        }
+        parent = slots[activeIndex] || first;
+      }
+      return nodes;
+    }
+
     /** Normalize stored conversations, dropping anything that cannot render. */
     function sanitizeConversations(stored) {
       if (!Array.isArray(stored)) return [];
@@ -1521,57 +1678,125 @@ window.__ModuleLoader__.load({
       for (let i = 0; i < stored.length; i += 1) {
         const item = stored[i];
         if (!item || typeof item.id !== 'string') continue;
-        const messages = Array.isArray(item.messages) ? item.messages : [];
+        const rawMessages = (Array.isArray(item.messages) ? item.messages : [])
+          .filter((message) => message && (message.role === 'user' || message.role === 'assistant'));
+        const hasTree = rawMessages.some((message) => typeof message.parentId === 'string' || message.parentId === null);
+        const nodes = (hasTree ? rawMessages.map(sanitizeNode).filter(Boolean) : migrateLinearMessages(rawMessages))
+          .map((node) => Object.assign({}, node, {
+            createdAt: node.createdAt || (typeof item.createdAt === 'number' ? item.createdAt : Date.now()),
+          }));
+        if (!nodes.length) continue;
+        const byId = new Map();
+        for (let n = 0; n < nodes.length; n += 1) byId.set(nodes[n].id, nodes[n]);
+        // Repair dangling links so a half-written file can never blank the panel.
+        for (let n = 0; n < nodes.length; n += 1) {
+          const node = nodes[n];
+          if (node.parentId && !byId.has(node.parentId)) node.parentId = null;
+          if (node.selectedChildId && !byId.has(node.selectedChildId)) node.selectedChildId = null;
+          if (node.selectedChildId) {
+            const child = byId.get(node.selectedChildId);
+            if (!child || child.parentId !== node.id) node.selectedChildId = null;
+          }
+        }
+        let rootId = typeof item.rootId === 'string' && byId.has(item.rootId) ? item.rootId : null;
+        if (!rootId) {
+          const roots = nodes.filter((node) => !node.parentId);
+          rootId = roots.length ? roots[0].id : nodes[0].id;
+        }
+        // Every node with children selects one of them, so the path never dead-ends.
+        for (let n = 0; n < nodes.length; n += 1) {
+          const node = nodes[n];
+          const children = nodes.filter((child) => child.parentId === node.id);
+          if (!children.length) {
+            node.selectedChildId = null;
+            continue;
+          }
+          if (!node.selectedChildId) node.selectedChildId = children[0].id;
+        }
         list.push({
           id: item.id,
           title: typeof item.title === 'string' && item.title ? item.title : '',
           createdAt: typeof item.createdAt === 'number' ? item.createdAt : Date.now(),
           updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : Date.now(),
-          messages: messages
-            .filter((m) => m && (m.role === 'user' || m.role === 'assistant'))
-            .map((m) => {
-              if (m.role === 'user') {
-                return {
-                  id: typeof m.id === 'string' ? m.id : uid(),
-                  role: 'user',
-                  // `content` is the shape stored before attachments existed.
-                  text: typeof m.text === 'string' ? m.text : (typeof m.content === 'string' ? m.content : ''),
-                  attachments: sanitizeAttachments(m.attachments),
-                };
-              }
-              const blocks = Array.isArray(m.blocks) ? sanitizeBlocks(m.blocks) : legacyBlocks(m);
-              const versions = Array.isArray(m.versions)
-                ? m.versions.map((slot) => ({
-                  blocks: sanitizeBlocks(slot && slot.blocks),
-                  status: slot && (slot.status === 'done' || slot.status === 'stopped' || slot.status === 'error')
-                    ? slot.status
-                    : 'done',
-                  stopReason: slot && typeof slot.stopReason === 'string' ? slot.stopReason : '',
-                  error: slot && typeof slot.error === 'string' ? slot.error : '',
-                }))
-                : [{ blocks, status: 'done', stopReason: '', error: '' }];
-              const versionIndex = typeof m.versionIndex === 'number' && m.versionIndex < versions.length
-                ? m.versionIndex
-                : versions.length - 1;
-              const active = versions[versionIndex] || { blocks, status: 'done' };
-              return {
-                id: typeof m.id === 'string' ? m.id : uid(),
-                role: 'assistant',
-                versions,
-                versionIndex,
-                blocks: active.blocks,
-                stopReason: active.stopReason || '',
-                status: m.status === 'done' || m.status === 'stopped' || m.status === 'error'
-                  ? m.status
-                  : (m.stopped === true ? 'stopped' : (blocks.length ? 'done' : 'error')),
-                error: typeof m.error === 'string' ? m.error : '',
-              };
-            }),
+          rootId,
+          messages: nodes,
         });
       }
       return list;
     }
 
+    /** Every node under one parent, in creation order. */
+    function childrenOf(messages, parentId) {
+      const children = [];
+      for (let i = 0; i < messages.length; i += 1) {
+        if (messages[i].parentId === parentId) children.push(messages[i]);
+      }
+      return children;
+    }
+
+    /** The messages the thread shows: follow `selectedChildId` from the root. */
+    function visiblePath(conversation) {
+      if (!conversation) return [];
+      const messages = conversation.messages || [];
+      const byId = new Map();
+      for (let i = 0; i < messages.length; i += 1) byId.set(messages[i].id, messages[i]);
+      const path = [];
+      const guard = new Set();
+      let cursor = conversation.rootId && byId.has(conversation.rootId) ? conversation.rootId : null;
+      if (!cursor) {
+        const root = messages.find((node) => !node.parentId);
+        cursor = root ? root.id : null;
+      }
+      while (cursor && !guard.has(cursor)) {
+        guard.add(cursor);
+        const node = byId.get(cursor);
+        if (!node) break;
+        path.push(node);
+        cursor = node.selectedChildId || null;
+      }
+      return path;
+    }
+
+    /** Siblings of one node: same parent, same role (its other versions). */
+    function siblingNodes(conversation, node) {
+      if (!conversation || !node) return [];
+      return childrenOf(conversation.messages || [], node.parentId || null)
+        .filter((candidate) => candidate.role === node.role);
+    }
+
+    /** The visible messages before one node (its ancestors), for request history. */
+    function pathBefore(conversation, nodeId) {
+      const path = visiblePath(conversation);
+      const index = path.findIndex((node) => node.id === nodeId);
+      if (index >= 0) return path.slice(0, index);
+      const byId = new Map((conversation.messages || []).map((node) => [node.id, node]));
+      const chain = [];
+      let cursor = byId.get(nodeId);
+      const guard = new Set();
+      while (cursor && cursor.parentId && byId.has(cursor.parentId) && !guard.has(cursor.id)) {
+        guard.add(cursor.id);
+        cursor = byId.get(cursor.parentId);
+        chain.unshift(cursor);
+      }
+      return chain;
+    }
+
+    /** Point the parent at one child (or make it the root when parentless). */
+    function selectNode(conversation, nodeId) {
+      const messages = (conversation.messages || []).map((node) => Object.assign({}, node));
+      const target = messages.find((node) => node.id === nodeId);
+      if (!target) return conversation;
+      if (!target.parentId) {
+        return Object.assign({}, conversation, { rootId: target.id, messages });
+      }
+      for (let i = 0; i < messages.length; i += 1) {
+        if (messages[i].id === target.parentId) {
+          messages[i].selectedChildId = target.id;
+          break;
+        }
+      }
+      return Object.assign({}, conversation, { messages });
+    }
     /** Sort newest first without mutating the input. */
     function sortConversations(list) {
       return list.slice().sort((a, b) => b.updatedAt - a.updatedAt);
@@ -2482,27 +2707,8 @@ window.__ModuleLoader__.load({
 
     /** Replace the active version slot of a reply, keeping the mirrors in sync. */
     function patchVersion(message, patch) {
-      const versions = Array.isArray(message.versions) && message.versions.length
-        ? message.versions.slice()
-        : [{
-          blocks: message.blocks || [],
-          status: message.status || 'done',
-          stopReason: message.stopReason || '',
-          error: message.error || '',
-        }];
-      const index = typeof message.versionIndex === 'number' && message.versionIndex < versions.length
-        ? message.versionIndex
-        : versions.length - 1;
-      const slot = Object.assign({}, versions[index] || {}, patch);
-      versions[index] = slot;
-      return Object.assign({}, message, {
-        versions,
-        versionIndex: index,
-        blocks: slot.blocks || [],
-        status: slot.status || 'done',
-        stopReason: slot.stopReason || '',
-        error: slot.error || '',
-      });
+      // With a message tree, one reply is one node; archived versions are siblings.
+      return Object.assign({}, message, patch);
     }
 
     /** Stored attachment metadata for the request that is about to be sent. */
@@ -4773,9 +4979,10 @@ h3.dsc-mdHeading { font-size: 15px; }
 
     /** One user turn: attachments above the text, right-aligned. */
     function UserMessage(props) {
-      const { message, t, onEdit, canEdit } = props;
+      const { message, t, onEdit, canEdit, version } = props;
       const items = message.attachments || [];
       return h('div', { className: 'dsc-userRow' },
+        h(VersionPager, { version, t }),
         canEdit
           ? h('div', { className: 'dsc-userActions' },
             h('button', {
@@ -4791,13 +4998,35 @@ h3.dsc-mdHeading { font-size: 15px; }
           message.text ? h('div', { className: 'dsc-userText' }, message.text) : null));
     }
 
+    /** ‹ n / N › pager for a message that has sibling versions. */
+    function VersionPager(props) {
+      const { version, t } = props;
+      if (!version || version.count < 2) return null;
+      return h('span', { className: 'dsc-versions' },
+        h('button', {
+          type: 'button',
+          className: 'dsc-versionArrow',
+          title: t('previousVersion'),
+          'aria-label': t('previousVersion'),
+          disabled: version.index <= 0,
+          onClick: () => version.onSwitch(-1),
+        }, '‹'),
+        h('span', { className: 'dsc-versionLabel' }, (version.index + 1) + ' / ' + version.count),
+        h('button', {
+          type: 'button',
+          className: 'dsc-versionArrow',
+          title: t('nextVersion'),
+          'aria-label': t('nextVersion'),
+          disabled: version.index >= version.count - 1,
+          onClick: () => version.onSwitch(1),
+        }, '›'));
+    }
+
     /** One assistant message rendered from its streamed blocks. */
     function AssistantMessage(props) {
-      const { message, streaming, isLast, onRegenerate, canRegenerate, canContinue, onContinue, onSpeak, speaking, speakPending, t, onOpenSources, onOpenSettings, onSwitchVersion } = props;
+      const { message, streaming, isLast, onRegenerate, canRegenerate, canContinue, onContinue, onSpeak, speaking, speakPending, t, onOpenSources, onOpenSettings, version } = props;
       const [copied, setCopied] = useState(false);
       const [reasonOpen, setReasonOpen] = useState(true);
-      const versions = Array.isArray(message.versions) && message.versions.length ? message.versions : [{ blocks: message.blocks || [] }];
-      const versionIndex = typeof message.versionIndex === 'number' ? message.versionIndex : versions.length - 1;
       const blocks = message.blocks || [];
       const answer = assistantText(message);
       const copy = useCallback(() => {
@@ -4872,26 +5101,7 @@ h3.dsc-mdHeading { font-size: 15px; }
             : null) : null,
         hasBody && !streaming
           ? h('div', { className: 'dsc-botFoot', 'data-last': isLast ? 'true' : 'false' },
-            versions.length > 1
-              ? h('span', { className: 'dsc-versions' },
-                h('button', {
-                  type: 'button',
-                  className: 'dsc-versionArrow',
-                  title: t('previousVersion'),
-                  'aria-label': t('previousVersion'),
-                  disabled: versionIndex <= 0,
-                  onClick: () => onSwitchVersion(-1),
-                }, '‹'),
-                h('span', { className: 'dsc-versionLabel' }, (versionIndex + 1) + ' / ' + versions.length),
-                h('button', {
-                  type: 'button',
-                  className: 'dsc-versionArrow',
-                  title: t('nextVersion'),
-                  'aria-label': t('nextVersion'),
-                  disabled: versionIndex >= versions.length - 1,
-                  onClick: () => onSwitchVersion(1),
-                }, '›'))
-              : null,
+            h(VersionPager, { version, t }),
             h('button', {
               type: 'button',
               className: 'dsc-plainAction dsc-speakAction',
@@ -5405,52 +5615,106 @@ h3.dsc-mdHeading { font-size: 15px; }
           setSettingsOpen(true);
           return;
         }
+        stickRef.current = true;
+        setDraft('');
+        setAttachments([]);
+        setNotice('');
+
+        // Editing asks the same question again on a new branch: the previous
+        // question and its replies stay in the tree and can be switched back to.
         if (editing) {
           const target = findConversation(editing.conversationId);
-          const index = target ? target.messages.findIndex((item) => item.id === editing.messageId) : -1;
-          if (target && index >= 0) {
-            const original = target.messages[index];
-            const question = Object.assign({}, original, {
+          const original = target
+            ? (target.messages || []).find((item) => item.id === editing.messageId)
+            : null;
+          if (target && original) {
+            const question = {
+              id: uid(),
+              role: 'user',
+              parentId: original.parentId || null,
+              selectedChildId: null,
+              createdAt: Date.now(),
               text,
               attachments: ready.length ? ready.map(attachmentMeta) : (original.attachments || []),
+            };
+            const reply = {
+              id: uid(),
+              role: 'assistant',
+              parentId: question.id,
+              selectedChildId: null,
+              createdAt: Date.now(),
+              blocks: [],
+              status: 'streaming',
+              stopReason: '',
+              error: '',
+            };
+            question.selectedChildId = reply.id;
+            const request = requestMessages(
+              pathBefore(target, original.id),
+              question,
+              t('send') === 'Send',
+              settings.location,
+            );
+            updateConversation(target.id, (item) => {
+              const next = Object.assign({}, item, {
+                // Editing the opening question renames the conversation too.
+                title: !item.title || item.title === titleFrom(original.text || '')
+                  ? titleFrom(text)
+                  : item.title,
+                updatedAt: Date.now(),
+                messages: item.messages.concat([question, reply]),
+              });
+              return selectNode(next, question.id);
             });
-            const history = target.messages.slice(0, index);
-            const botMessage = { id: uid(), role: 'assistant', blocks: [], status: 'streaming', error: '' };
-            updateConversation(target.id, (item) => Object.assign({}, item, {
-              // Editing the opening question renames the conversation too.
-              title: index <= 1 ? titleFrom(text) : (item.title || titleFrom(text)),
-              updatedAt: Date.now(),
-              messages: history.concat([question, botMessage]),
-            }));
-            const request = requestMessages(history, question, t('send') === 'Send', settings.location);
-            setDraft('');
-            setAttachments([]);
             setEditing(null);
-            setNotice('');
-            stickRef.current = true;
-            runReply(target.id, botMessage.id, request, settings.webSearch);
+            runReply(target.id, reply.id, request, settings.webSearch);
+            window.setTimeout(() => {
+              const node = inputRef.current;
+              if (node) node.focus();
+            }, 0);
             return;
           }
           setEditing(null);
         }
-        const userMessage = {
+
+        const question = {
           id: uid(),
           role: 'user',
+          parentId: null,
+          selectedChildId: null,
+          createdAt: Date.now(),
           text,
           attachments: ready.map(attachmentMeta),
         };
-        const botMessage = { id: uid(), role: 'assistant', blocks: [], status: 'streaming', error: '' };
+        const reply = {
+          id: uid(),
+          role: 'assistant',
+          parentId: question.id,
+          selectedChildId: null,
+          createdAt: Date.now(),
+          blocks: [],
+          status: 'streaming',
+          stopReason: '',
+          error: '',
+        };
         const target = activeId ? findConversation(activeId) : null;
         const title = titleFrom(text || (ready[0] ? ready[0].name : ''));
         let conversationId = activeId;
         let history = [];
         if (target) {
-          history = target.messages;
-          updateConversation(target.id, (item) => Object.assign({}, item, {
-            title: item.title || title,
-            updatedAt: Date.now(),
-            messages: item.messages.concat([userMessage, botMessage]),
-          }));
+          const path = visiblePath(target);
+          const tail = path[path.length - 1];
+          question.parentId = tail ? tail.id : null;
+          question.selectedChildId = reply.id;
+          history = path;
+          updateConversation(target.id, (item) => {
+            const next = Object.assign({}, item, {
+              title: item.title || title,
+              updatedAt: Date.now(),
+              messages: item.messages.concat([question, reply]),
+            });
+            return selectNode(next, question.id);
+          });
         } else {
           conversationId = uid();
           const created = {
@@ -5458,40 +5722,34 @@ h3.dsc-mdHeading { font-size: 15px; }
             title,
             createdAt: Date.now(),
             updatedAt: Date.now(),
-            messages: [userMessage, botMessage],
+            rootId: question.id,
+            messages: [question, reply],
           };
           setConversations((previous) => [created].concat(previous));
           setActiveId(conversationId);
         }
-        const request = requestMessages(history, userMessage, t('send') === 'Send', settings.location);
-        setDraft('');
-        setAttachments([]);
-        setNotice('');
-        stickRef.current = true;
-        runReply(conversationId, botMessage.id, request, settings.webSearch);
+        question.selectedChildId = reply.id;
+        const request = requestMessages(history, question, t('send') === 'Send', settings.location);
+        runReply(conversationId, reply.id, request, settings.webSearch);
         window.setTimeout(() => {
           const node = inputRef.current;
           if (node) node.focus();
         }, 0);
       }, [activeId, attachments, busy, draft, editing, findConversation, runReply, settings.apiKey, settings.webSearch, t, updateConversation, uploading]);
-
-      /** Show the previous or next answer version of one turn. */
+      /** Show the previous or next version of one turn (its siblings). */
       const switchVersion = useCallback((conversationId, messageId, direction) => {
-        patchMessage(conversationId, messageId, (message) => {
-          const versions = message.versions || [];
-          const index = typeof message.versionIndex === 'number' ? message.versionIndex : 0;
+        updateConversation(conversationId, (conversation) => {
+          const node = (conversation.messages || []).find((message) => message.id === messageId);
+          if (!node) return conversation;
+          const siblings = siblingNodes(conversation, node);
+          if (siblings.length < 2) return conversation;
+          const index = siblings.findIndex((sibling) => sibling.id === node.id);
           const next = index + direction;
-          if (next < 0 || next >= versions.length) return message;
-          const slot = versions[next];
-          return Object.assign({}, message, {
-            versionIndex: next,
-            blocks: slot.blocks || [],
-            status: slot.status || 'done',
-            stopReason: slot.stopReason || '',
-            error: slot.error || '',
-          });
+          if (next < 0 || next >= siblings.length) return conversation;
+          const selected = selectNode(conversation, siblings[next].id);
+          return Object.assign({}, selected, { updatedAt: Date.now() });
         });
-      }, [patchMessage]);
+      }, [updateConversation]);
 
       const stop = useCallback(() => {
         if (abortRef.current) abortRef.current.abort();
@@ -5866,12 +6124,12 @@ h3.dsc-mdHeading { font-size: 15px; }
       /** Keep generating a reply the service cut short, appending to the same blocks. */
       const continueReply = useCallback((conversation, message) => {
         if (!conversation || busy || !canContinueReply(message)) return;
-        const messages = conversation.messages;
-        const index = messages.findIndex((item) => item.id === message.id);
+        const path = visiblePath(conversation);
+        const index = path.findIndex((item) => item.id === message.id);
         if (index < 1) return;
-        const question = messages[index - 1];
+        const question = path[index - 1];
         if (!question || question.role !== 'user') return;
-        const request = requestMessages(messages.slice(0, index - 1), question, t('send') === 'Send', settings.location);
+        const request = requestMessages(path.slice(0, index - 1), question, t('send') === 'Send', settings.location);
         // An assistant prefill tells the service to keep going from the cut point.
         const prefill = assistantText(message);
         if (prefill.trim()) request.push({ role: 'assistant', content: [{ type: 'text', text: prefill }] });
@@ -5885,38 +6143,36 @@ h3.dsc-mdHeading { font-size: 15px; }
 
       const regenerate = useCallback((conversation) => {
         if (!conversation || busy) return;
-        const messages = conversation.messages;
-        const lastIndex = messages.length - 1;
-        const last = messages[lastIndex];
+        const path = visiblePath(conversation);
+        const last = path[path.length - 1];
         if (!last || last.role !== 'assistant') return;
-        const question = messages[lastIndex - 1];
+        const question = path[path.length - 2];
         if (!question || question.role !== 'user') return;
-        const request = requestMessages(messages.slice(0, lastIndex - 1), question, t('send') === 'Send', settings.location);
-        patchMessage(conversation.id, last.id, (message) => {
-          const versions = Array.isArray(message.versions) && message.versions.length
-            ? message.versions.slice()
-            : [{
-              blocks: message.blocks || [],
-              status: message.status || 'done',
-              stopReason: message.stopReason || '',
-              error: message.error || '',
-            }];
-          versions.push({ blocks: [], status: 'streaming', stopReason: '', error: '' });
-          const index = versions.length - 1;
-          return Object.assign({}, message, {
-            versions,
-            versionIndex: index,
-            blocks: [],
-            status: 'streaming',
-            stopReason: '',
-            error: '',
+        const history = path.slice(0, -2);
+        const request = requestMessages(history, question, t('send') === 'Send', settings.location);
+        const reply = {
+          id: uid(),
+          role: 'assistant',
+          parentId: question.id,
+          selectedChildId: null,
+          createdAt: Date.now(),
+          blocks: [],
+          status: 'streaming',
+          stopReason: '',
+          error: '',
+        };
+        updateConversation(conversation.id, (item) => {
+          const next = Object.assign({}, item, {
+            updatedAt: Date.now(),
+            messages: item.messages.concat([reply]),
           });
+          return selectNode(next, reply.id);
         });
-        runReply(conversation.id, last.id, request, settings.webSearch);
+        runReply(conversation.id, reply.id, request, settings.webSearch);
       }, [busy, patchMessage, runReply, settings.webSearch]);
 
       const startNewChat = useCallback(() => {
-        const created = { id: uid(), title: '', createdAt: Date.now(), updatedAt: Date.now(), messages: [] };
+        const created = { id: uid(), title: '', createdAt: Date.now(), updatedAt: Date.now(), rootId: null, messages: [] };
         setConversations((previous) => [created].concat(previous));
         setActiveId(created.id);
         setDraft('');
@@ -6023,7 +6279,19 @@ h3.dsc-mdHeading { font-size: 15px; }
         }
       }, [send]);
 
-      const messages = active ? active.messages : [];
+      const messages = useMemo(() => (active ? visiblePath(active) : []), [active]);
+      /** Pager data for one message: its sibling count, position, and switcher. */
+      const versionInfo = useCallback((message) => {
+        if (!active || !message) return null;
+        const siblings = siblingNodes(active, message);
+        if (siblings.length < 2) return null;
+        return {
+          count: siblings.length,
+          index: Math.max(0, siblings.findIndex((sibling) => sibling.id === message.id)),
+          onSwitch: (direction) => switchVersion(active.id, message.id, direction),
+        };
+      }, [active, switchVersion]);
+
       const canRegenerate = Boolean(active) && !busy && messages.length > 0 && messages[messages.length - 1].role === 'assistant';
       const hasApiKey = Boolean(String(settings.apiKey).trim());
 
@@ -6092,10 +6360,12 @@ h3.dsc-mdHeading { font-size: 15px; }
               onClick: () => send(t(key)),
             }, t(key)))))
         : h('div', { className: 'dsc-thread' }, messages.map((message) => {
+          const version = versionInfo(message);
           if (message.role === 'user') {
             return h('div', { key: message.id, className: 'dsc-turn dsc-turnUser' }, h(UserMessage, {
               message,
               t,
+              version,
               canEdit: !busy,
               onEdit: () => {
                 setEditing({ conversationId: activeId, messageId: message.id });
@@ -6114,6 +6384,7 @@ h3.dsc-mdHeading { font-size: 15px; }
           return h('div', { key: message.id, className: 'dsc-turn' },
             h(AssistantMessage, {
               message,
+              version,
               streaming: message.id === streamingId,
               canRegenerate,
               isLast: canRegenerate,
@@ -6124,7 +6395,6 @@ h3.dsc-mdHeading { font-size: 15px; }
               speaking: ttsId === message.id,
               speakPending: ttsPendingId === message.id,
               onOpenSources: () => setDrawerId((current) => (current === message.id ? null : message.id)),
-              onSwitchVersion: (direction) => switchVersion(active.id, message.id, direction),
               onOpenSettings: () => setSettingsOpen(true),
               t,
             }));

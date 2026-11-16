@@ -83,9 +83,9 @@ answer it belongs to.
 ## Edit, continue, and versions
 
 - Every user message shows **Edit message** on hover while the panel is idle.
-  Choosing it puts the text back in the composer; sending replaces that turn
-  and deletes every reply after it (see *Known limits* — this version does not
-  keep the demo's switchable branches).
+  Choosing it puts the text back in the composer; sending asks again on a **new
+  branch** and keeps the previous question and its replies, exactly like the
+  demo. The `‹ n / N ›` pager under a message switches between branches.
 - A reply that stopped early — you pressed **Stop**, or the service hit its
   output limit — offers **Continue generating**. It re-asks with the answer so
   far as an assistant prefill and appends the continuation to the same message.
@@ -225,14 +225,13 @@ The bundle is a plain package: no build step, no dependencies, no Host code.
 - Backups use DeepSeek's history ZIP format in both directions. Known losses:
   attachment image bytes are not written (our files stay on the API service, so
   the archive carries file names and sizes only), `TOOL_FIND` and
-  `PARTIAL_FILE_READ` steps have no UI and are dropped, and reply branches are
-  flattened to the selected path until branching support lands. Import replaces
+  `PARTIAL_FILE_READ` steps have no UI and are dropped, . Import replaces
   every conversation stored in this browser instead of merging, and rejects
   newer/incomplete/corrupt files. If `localStorage` is full the import fails with
   an incomplete-file notice and leaves the current archive in place.
-- Editing a message deletes the answers after it. The demo keeps branches you
-  can switch back to; this version is deliberately simpler, and only
-  regenerated answers keep versions.
+- Editing and regenerating keep every branch; the pager switches between them.
+  A conversation can grow past its visible length because hidden branches are
+  stored too (they are archived and counted like visible messages).
 - Continue generation is offered only when a reply ended unfinished (you
   pressed Stop, or the service hit its output limit) and only if it used no
   server tools; the continuation can be cut short again.
