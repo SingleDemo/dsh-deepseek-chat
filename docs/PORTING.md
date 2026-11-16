@@ -52,13 +52,34 @@ Kept deliberately small, and listed here so an upstream sync can reapply them:
   palette switches with DSH instead of the OS.
 - Scoped tokens use a doubled class so they beat the host's `html`-level rules.
 
+- The plugin extras are back on top of the vendored app, in the demo's own
+  Settings → General list: **思考强度** (low/high/max, sent as
+  `output_config.effort` while DeepThink is on) and **API 地址** (overrides the
+  build-time origin at request time). Their patches are listed below.
+
+## Extra patches (beyond the portal/theme ones)
+
+| File | Patch |
+| --- | --- |
+| `services/settings.ts` | `apiBaseUrl`, `thinkingEffort` fields, storage keys and setters |
+| `services/api/client.ts` | `apiBaseUrl()` reads the setting per request instead of a build constant |
+| `services/api/types.ts` | `CreateMessageRequest.output_config` |
+| `services/chat/store.ts` | sends `output_config.effort` when DeepThink is enabled |
+| `components/settings/SettingsDialog.tsx` | 思考强度 and API 地址 rows |
+| `i18n/zh.ts`, `i18n/en.ts` | five new strings each |
+
+## Verified end to end
+
+A real request through the ported app returns a streamed answer with markdown
+and KaTeX (`docs/screenshots/demo-ported-chat.png`), and the two extra rows
+appear in the demo's General settings tab
+(`docs/screenshots/demo-ported-extras.png`).
+
 ## Open work
 
-1. Re-add the plugin extras on top of the vendored app: thinking-strength
-   levels, custom API base URL, and the Harness-side notices.
-2. The bundle is ~8 MB because katex, mermaid and prism are inlined; move
+1. The bundle is ~8 MB because katex, mermaid and prism are inlined; move
    mermaid back to a lazy CDN load and check the KaTeX font subset.
-3. Rewrite the e2e checks for the new DOM (they currently target the retired
+2. Rewrite the e2e checks for the new DOM (they currently target the retired
    hand-written UI in `client.legacy.js`).
-4. Decide how the demo's own sider interacts with the Harness rail (both are
+3. Decide how the demo's own sider interacts with the Harness rail (both are
    visible today; the demo sider is part of the app and stays for parity).

@@ -180,6 +180,8 @@ export type CreateMessageRequest = {
   tools: (DeepseekWebSearchTool | DeepseekReadUrlTool)[]
   safety_check: { level: 'high' }
   title?: { enabled: boolean }
+  /** 插件额外能力：深度思考的推理强度 */
+  output_config?: { effort: 'low' | 'high' | 'max' }
 }
 
 // ---------- 响应：流式事件 ----------

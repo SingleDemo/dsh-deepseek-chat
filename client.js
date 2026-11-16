@@ -763,7 +763,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/settings.ts
-    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed;
+    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort;
     var init_settings = __esm({
       "vendor/chat-demo/src/services/settings.ts"() {
         init_react_shim();
@@ -777,7 +777,9 @@ window.__ModuleLoader__.load({
           ttsVoice: "chat-demo:tts-voice",
           thinking: "chat-demo:thinking",
           search: "chat-demo:search",
-          siderCollapsed: "chat-demo:sider-collapsed"
+          siderCollapsed: "chat-demo:sider-collapsed",
+          apiBaseUrl: "chat-demo:api-base-url",
+          thinkingEffort: "chat-demo:thinking-effort"
         };
         read = (key) => {
           try {
@@ -828,7 +830,9 @@ window.__ModuleLoader__.load({
           ttsVoice: initialTtsVoice(),
           thinking: read(KEYS.thinking) === "true",
           search: read(KEYS.search) === "true",
-          siderCollapsed: read(KEYS.siderCollapsed) === "true"
+          siderCollapsed: read(KEYS.siderCollapsed) === "true",
+          apiBaseUrl: read(KEYS.apiBaseUrl) || null,
+          thinkingEffort: read(KEYS.thinkingEffort) === "low" || read(KEYS.thinkingEffort) === "max" ? read(KEYS.thinkingEffort) : "high"
         }));
         setLocale = (locale3) => {
           write(KEYS.locale, locale3);
@@ -862,6 +866,14 @@ window.__ModuleLoader__.load({
         setSiderCollapsed = (siderCollapsed) => {
           write(KEYS.siderCollapsed, String(siderCollapsed));
           useSettings2.setState({ siderCollapsed });
+        };
+        setApiBaseUrl = (apiBaseUrl2) => {
+          write(KEYS.apiBaseUrl, apiBaseUrl2);
+          useSettings2.setState({ apiBaseUrl: apiBaseUrl2 });
+        };
+        setThinkingEffort = (thinkingEffort) => {
+          write(KEYS.thinkingEffort, thinkingEffort);
+          useSettings2.setState({ thinkingEffort });
         };
       }
     });
@@ -1038,7 +1050,13 @@ window.__ModuleLoader__.load({
           retry: "Retry",
           latestReminderLanguage: "English",
           settingsLocaleZhCN: "Simplified Chinese",
-          settingsLocaleEnUS: "English"
+          settingsLocaleEnUS: "English",
+          settingsThinkingEffort: "Thinking effort",
+          settingsThinkingEffortLow: "Low",
+          settingsThinkingEffortHigh: "High",
+          settingsThinkingEffortMax: "Max",
+          settingsApiBaseUrl: "API base URL",
+          settingsApiBaseUrlPlaceholder: "Leave empty to use the default"
         };
       }
     });
@@ -1215,7 +1233,13 @@ window.__ModuleLoader__.load({
           retry: "\u91CD\u8BD5",
           latestReminderLanguage: "\u4E2D\u6587",
           settingsLocaleZhCN: "\u7B80\u4F53\u4E2D\u6587",
-          settingsLocaleEnUS: "English"
+          settingsLocaleEnUS: "English",
+          settingsThinkingEffort: "\u601D\u8003\u5F3A\u5EA6",
+          settingsThinkingEffortLow: "\u4F4E",
+          settingsThinkingEffortHigh: "\u9AD8",
+          settingsThinkingEffortMax: "\u6700\u9AD8",
+          settingsApiBaseUrl: "API \u5730\u5740",
+          settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740"
         };
       }
     });
@@ -1643,7 +1667,7 @@ window.__ModuleLoader__.load({
     
     // vendor/chat-demo/src/services/api/client.ts
     async function* streamMessage(apiKey, body, signal) {
-      const response = await request(`${ANTHROPIC_BASE_URL}/messages`, {
+      const response = await request(`${apiBaseUrl()}/messages`, {
         method: "POST",
         headers: {
           ...anthropicHeaders(apiKey, hasFile(body)),
@@ -1683,15 +1707,19 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, ANTHROPIC_BASE_URL, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, anthropicHeaders, verifyApiKey, uploadFile, hasFile;
+    var API_ORIGIN, apiBaseUrl, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, anthropicHeaders, verifyApiKey, uploadFile, hasFile;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
         init_i18n();
+        init_settings();
         init_parseEvent();
         init_sse();
         API_ORIGIN = "https://api.deepseek.com";
-        ANTHROPIC_BASE_URL = `${API_ORIGIN}/anthropic/v1`;
+        apiBaseUrl = () => {
+          const override = useSettings2.getState().apiBaseUrl;
+          return `${(override && override.trim() ? override.trim() : API_ORIGIN).replace(/\/+$/, "")}/anthropic/v1`;
+        };
         FILES_BETA = "files-api-2025-04-14";
         ApiError = class extends Error {
           constructor(kind, message2, status) {
@@ -1750,7 +1778,7 @@ window.__ModuleLoader__.load({
             form.append("purpose", purpose);
           }
           form.append("file", file);
-          const response = await request(`${ANTHROPIC_BASE_URL}/files`, {
+          const response = await request(`${apiBaseUrl()}/files`, {
             method: "POST",
             headers: anthropicHeaders(apiKey, true),
             body: form,
@@ -4731,6 +4759,7 @@ window.__ModuleLoader__.load({
                     messages,
                     thinking: { type: initial.thinking ? "enabled" : "disabled" },
                     safety_check: SAFETY_CHECK,
+                    ...initial.thinking ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {},
                     tools: serverTools(initial.search ?? false),
                     ...titleRequests.has(controller) ? { title: { enabled: true } } : {}
                   },
@@ -182907,7 +182936,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/components/settings/SettingsDialog.tsx
-    var import_react34, SettingsDialog, sections6, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, TtsVoiceSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
+    var import_react34, SettingsDialog, sections6, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ApiBaseUrlSetting, TtsVoiceSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
     var init_SettingsDialog = __esm({
       "vendor/chat-demo/src/components/settings/SettingsDialog.tsx"() {
         init_react_shim();
@@ -182974,7 +183003,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t4(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t4("deleteAllSessions"),
@@ -183131,6 +183160,61 @@ window.__ModuleLoader__.load({
                     { value: "en-US", label: t4("settingsLocaleEnUS"), lang: "en" }
                   ],
                   onChange: setLocale
+                }
+              )
+            }
+          );
+        };
+        ThinkingEffortSetting = () => {
+          const t4 = useTranslate();
+          const thinkingEffort = useSettings2((state3) => state3.thinkingEffort);
+          return /* @__PURE__ */ React.createElement(
+            SettingCell,
+            {
+              label: t4("settingsThinkingEffort"),
+              status: null,
+              action: /* @__PURE__ */ React.createElement(
+                Select,
+                {
+                  ariaLabel: t4("settingsThinkingEffort"),
+                  value: thinkingEffort,
+                  options: [
+                    { value: "low", label: t4("settingsThinkingEffortLow") },
+                    { value: "high", label: t4("settingsThinkingEffortHigh") },
+                    { value: "max", label: t4("settingsThinkingEffortMax") }
+                  ],
+                  onChange: setThinkingEffort
+                }
+              )
+            }
+          );
+        };
+        ApiBaseUrlSetting = () => {
+          const t4 = useTranslate();
+          const apiBaseUrl2 = useSettings2((state3) => state3.apiBaseUrl);
+          const [draft, setDraft] = (0, import_react34.useState)(apiBaseUrl2 ?? "");
+          (0, import_react34.useEffect)(() => setDraft(apiBaseUrl2 ?? ""), [apiBaseUrl2]);
+          const commit2 = () => setApiBaseUrl(draft.trim() || null);
+          return /* @__PURE__ */ React.createElement(
+            SettingCell,
+            {
+              label: t4("settingsApiBaseUrl"),
+              status: null,
+              action: /* @__PURE__ */ React.createElement(
+                "input",
+                {
+                  className: Settings_default.apiKeyInput,
+                  value: draft,
+                  placeholder: t4("settingsApiBaseUrlPlaceholder"),
+                  spellCheck: false,
+                  autoComplete: "off",
+                  onChange: (event3) => setDraft(event3.target.value),
+                  onBlur: commit2,
+                  onKeyDown: (event3) => {
+                    if (event3.key === "Enter") {
+                      commit2();
+                    }
+                  }
                 }
               )
             }

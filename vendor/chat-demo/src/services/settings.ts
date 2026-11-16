@@ -8,6 +8,8 @@ export type Locale = 'zh-CN' | 'en-US'
 export type ThemePreference = 'light' | 'dark' | 'system'
 
 /** 本机设置，存 localStorage：API Key、语言、主题、位置、朗读音色、深度思考与智能搜索开关、侧边栏收起状态 */
+export type ThinkingEffort = 'low' | 'high' | 'max'
+
 type Settings = {
   apiKey: string | null
   locale: Locale
@@ -17,6 +19,10 @@ type Settings = {
   thinking: boolean
   search: boolean
   siderCollapsed: boolean
+  /** 接口地址覆盖（插件额外能力）；null 表示用构建时的默认地址 */
+  apiBaseUrl: string | null
+  /** 深度思考的推理强度（插件额外能力） */
+  thinkingEffort: ThinkingEffort
 }
 
 const KEYS = {
@@ -28,6 +34,8 @@ const KEYS = {
   thinking: 'chat-demo:thinking',
   search: 'chat-demo:search',
   siderCollapsed: 'chat-demo:sider-collapsed',
+  apiBaseUrl: 'chat-demo:api-base-url',
+  thinkingEffort: 'chat-demo:thinking-effort',
 } as const
 
 const read = (key: string) => {
@@ -96,6 +104,11 @@ export const useSettings = create<Settings>(() => ({
   thinking: read(KEYS.thinking) === 'true',
   search: read(KEYS.search) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
+  apiBaseUrl: read(KEYS.apiBaseUrl) || null,
+  thinkingEffort:
+    read(KEYS.thinkingEffort) === 'low' || read(KEYS.thinkingEffort) === 'max'
+      ? (read(KEYS.thinkingEffort) as ThinkingEffort)
+      : 'high',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -137,4 +150,14 @@ export const setSearch = (search: boolean) => {
 export const setSiderCollapsed = (siderCollapsed: boolean) => {
   write(KEYS.siderCollapsed, String(siderCollapsed))
   useSettings.setState({ siderCollapsed })
+}
+
+export const setApiBaseUrl = (apiBaseUrl: string | null) => {
+  write(KEYS.apiBaseUrl, apiBaseUrl)
+  useSettings.setState({ apiBaseUrl })
+}
+
+export const setThinkingEffort = (thinkingEffort: ThinkingEffort) => {
+  write(KEYS.thinkingEffort, thinkingEffort)
+  useSettings.setState({ thinkingEffort })
 }

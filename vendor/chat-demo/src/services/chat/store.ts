@@ -1004,6 +1004,9 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             messages,
             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
             safety_check: SAFETY_CHECK,
+            ...(initial.thinking
+              ? { output_config: { effort: useSettings.getState().thinkingEffort } }
+              : {}),
             tools: serverTools(initial.search ?? false),
             ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
           },

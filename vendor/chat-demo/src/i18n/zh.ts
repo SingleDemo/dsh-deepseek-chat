@@ -169,4 +169,10 @@ export const zh = {
   latestReminderLanguage: '中文',
   settingsLocaleZhCN: '简体中文',
   settingsLocaleEnUS: 'English',
+  settingsThinkingEffort: '思考强度',
+  settingsThinkingEffortLow: '低',
+  settingsThinkingEffortHigh: '高',
+  settingsThinkingEffortMax: '最高',
+  settingsApiBaseUrl: 'API 地址',
+  settingsApiBaseUrlPlaceholder: '留空使用默认地址',
 } as const

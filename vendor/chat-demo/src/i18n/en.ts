@@ -178,4 +178,10 @@ export const en = {
   latestReminderLanguage: 'English',
   settingsLocaleZhCN: 'Simplified Chinese',
   settingsLocaleEnUS: 'English',
+  settingsThinkingEffort: 'Thinking effort',
+  settingsThinkingEffortLow: 'Low',
+  settingsThinkingEffortHigh: 'High',
+  settingsThinkingEffortMax: 'Max',
+  settingsApiBaseUrl: 'API base URL',
+  settingsApiBaseUrlPlaceholder: 'Leave empty to use the default',
 } satisfies Record<keyof typeof zh, string>

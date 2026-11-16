@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   IconDarkOutline16,
   IconDataOutline16,
@@ -24,6 +24,8 @@ import {
   setLocation,
   setThemePreference,
   setTtsVoice,
+  setApiBaseUrl,
+  setThinkingEffort,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -99,6 +101,8 @@ const SettingsContent = () => {
               <ThemeSetting />
               <LocaleSetting />
               <TtsVoiceSetting />
+              <ThinkingEffortSetting />
+              <ApiBaseUrlSetting />
               <LocationSetting />
             </>
           ) : (
@@ -285,6 +289,61 @@ const LocaleSetting = () => {
             { value: 'en-US', label: t('settingsLocaleEnUS'), lang: 'en' },
           ]}
           onChange={setLocale}
+        />
+      }
+    />
+  )
+}
+
+/** 插件额外能力：深度思考的推理强度 */
+const ThinkingEffortSetting = () => {
+  const t = useTranslate()
+  const thinkingEffort = useSettings((state) => state.thinkingEffort)
+  return (
+    <SettingCell
+      label={t('settingsThinkingEffort')}
+      status={null}
+      action={
+        <Select
+          ariaLabel={t('settingsThinkingEffort')}
+          value={thinkingEffort}
+          options={[
+            { value: 'low', label: t('settingsThinkingEffortLow') },
+            { value: 'high', label: t('settingsThinkingEffortHigh') },
+            { value: 'max', label: t('settingsThinkingEffortMax') },
+          ]}
+          onChange={setThinkingEffort}
+        />
+      }
+    />
+  )
+}
+
+/** 插件额外能力：覆盖接口地址（留空用默认） */
+const ApiBaseUrlSetting = () => {
+  const t = useTranslate()
+  const apiBaseUrl = useSettings((state) => state.apiBaseUrl)
+  const [draft, setDraft] = useState(apiBaseUrl ?? '')
+  useEffect(() => setDraft(apiBaseUrl ?? ''), [apiBaseUrl])
+  const commit = () => setApiBaseUrl(draft.trim() || null)
+  return (
+    <SettingCell
+      label={t('settingsApiBaseUrl')}
+      status={null}
+      action={
+        <input
+          className={styles.apiKeyInput}
+          value={draft}
+          placeholder={t('settingsApiBaseUrlPlaceholder')}
+          spellCheck={false}
+          autoComplete="off"
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              commit()
+            }
+          }}
         />
       }
     />
