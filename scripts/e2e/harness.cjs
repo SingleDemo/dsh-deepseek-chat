@@ -22,6 +22,7 @@
 'use strict';
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
@@ -53,6 +54,7 @@ const DEMO_KEYS = {
   ttsVoice: 'chat-demo:tts-voice',
   apiBaseUrl: 'chat-demo:api-base-url',
   thinkingEffort: 'chat-demo:thinking-effort',
+  authMode: 'chat-demo:auth-mode',
 };
 /** Root of the new panel UI (the vendored demo lives inside it). */
 const HOST_SELECTOR = '.dsc-demo-host';
@@ -546,7 +548,10 @@ function createSteps(page, options) {
     }
     const options = overrides || {};
     const demo = {
-      apiKey: process.env.DEEPSEEK_API_KEY,
+      // Empty string is a valid override (account-login runs with no API key).
+      apiKey: options.apiKey === undefined ? process.env.DEEPSEEK_API_KEY : String(options.apiKey),
+      // Seeded checks use the pasted key; account mode is opt-in per check.
+      authMode: options.authMode === 'account' ? 'account' : 'key',
       locale: options.locale || 'zh-CN',
       theme: options.theme || 'system',
       thinking: options.thinking === undefined ? false : Boolean(options.thinking),
@@ -559,6 +564,7 @@ function createSteps(page, options) {
     const storage = {
       demo: {
         [DEMO_KEYS.apiKey]: demo.apiKey,
+        [DEMO_KEYS.authMode]: demo.authMode,
         [DEMO_KEYS.locale]: demo.locale,
         [DEMO_KEYS.theme]: demo.theme,
         [DEMO_KEYS.thinking]: String(demo.thinking),
@@ -643,6 +649,7 @@ function createSteps(page, options) {
       search: demo.search,
       thinkingEffort: demo.thinkingEffort,
       apiBaseUrl: demo.apiBaseUrl,
+      authMode: demo.authMode,
       apiKeyLength: demo.apiKey.length,
       cleared,
     };

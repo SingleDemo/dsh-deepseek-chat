@@ -109,6 +109,15 @@ function selectChecks(checks, only) {
 
 /* ------------------------------------------------------------------ runner */
 
+/** Thrown by ctx.skip(...) when a check cannot run in the current environment. */
+class CheckSkip extends Error {
+  constructor(reason) {
+    super(reason || '运行时跳过');
+    this.name = 'CheckSkip';
+    this.skipReason = reason || '运行时跳过';
+  }
+}
+
 /** Assertion helpers handed to every check. */
 function createContext(session, check) {
   const steps = session.steps;
@@ -118,6 +127,8 @@ function createContext(session, check) {
     name: check.name,
     dir: DOCS_DIR,
     log(message) { console.log('        ' + message); },
+    /** Mark the check as skipped with an honest reason (e.g. profile signed out). */
+    skip(reason) { throw new CheckSkip(reason); },
     assert(ok, message) {
       if (!ok) throw new Error('断言失败: ' + message);
     },
@@ -171,24 +182,29 @@ async function runCheck(session, check, options) {
   await steps.openPanel();
 
   let failure = null;
+  let skipReason = null;
   try {
     await withTimeout(Promise.resolve().then(() => check.run(context)), check.timeoutMs || options.checkTimeout, check.name);
   } catch (error) {
-    failure = error;
+    if (error && error.name === 'CheckSkip') {
+      skipReason = error.skipReason;
+    } else {
+      failure = error;
+    }
   }
 
   // Always leave visual evidence, even for a failure: docs/e2e/<name>.png.
   // A passed check that already wrote its own canonical screenshot keeps it.
   const checkShotItself = fs.existsSync(canonicalShot) && fs.statSync(canonicalShot).mtimeMs > shotMtime;
   let shotPath = checkShotItself ? canonicalShot : null;
-  if (options.shot && (failure || !checkShotItself)) {
+  if (options.shot && !skipReason && (failure || !checkShotItself)) {
     try {
       shotPath = await steps.shot(check.name);
     } catch (error) {
       context.log('截图失败: ' + error.message);
     }
   }
-  return { check, failure, shotPath, durationMs: Date.now() - started, context };
+  return { check, failure, skipReason, shotPath, durationMs: Date.now() - started, context };
 }
 
 function printList(checks) {
@@ -293,7 +309,10 @@ async function main() {
       }
 
       const seconds = (result.durationMs / 1000).toFixed(1);
-      if (result.failure) {
+      if (result.skipReason) {
+        skipped += 1;
+        console.log('  SKIP  ' + check.name + ' — ' + result.skipReason);
+      } else if (result.failure) {
         failures.push(check.name);
         console.log('  FAIL  ' + check.name + ' (' + seconds + 's)'
           + (result.shotPath ? '  → ' + path.relative(process.cwd(), result.shotPath) : ''));
