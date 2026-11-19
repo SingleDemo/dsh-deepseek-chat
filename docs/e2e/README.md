@@ -14,7 +14,7 @@ node scripts/e2e/run.cjs --list                 # 列出 19 项（含 SKIP），
 node scripts/e2e/run.cjs --only panel            # 单项/多项（逗号分隔）
 node scripts/e2e/run.cjs --only account-login    # 账号登录免 Key（1 次生成）
 node scripts/e2e/run.cjs --only model-picker     # 模型选择（0 次生成；Key 模式缺陷见下）
-node scripts/e2e/run.cjs                         # 全量：14 PASS + 5 SKIP
+node scripts/e2e/run.cjs                         # 全量：15 PASS + 4 SKIP
 node scripts/e2e/run.cjs --fresh-profile         # 冷 profile，跑完删除
 ```
 
@@ -36,7 +36,7 @@ docs/e2e/<name>.png        # 每项主截图（另有 -settings/-failed 等证�
 docs/e2e/README.md         # 本文件
 ```
 
-## 检查项（19 项 = 14 PASS + 5 SKIP）
+## 检查项（19 项 = 15 PASS + 4 SKIP）
 
 | 检查 | 结果 | 内容 | 成本 |
 | --- | --- | --- | --- |
@@ -45,7 +45,7 @@ docs/e2e/README.md         # 本文件
 | `chat-live` | PASS | 一次请求断言回答文本 + `.katex` + `.md-mermaid-diagram svg`（公式/Mermaid 管线） | 1 次生成 |
 | `search-panel` | PASS | 智能搜索发问 → citation 角标 + 「已阅读 N 个网页」搜索步骤 → 点开 `SearchPanel`：`aside` 在 `.dsc-demo-host` 内、矩形不超出面板、列出 SourceCard（记录条数/首条标题）、可关闭 | 1 次生成 |
 | `account-login` | PASS | 免 Key 账号登录：空 api-key + `auth-mode=account` → 打开面板 0 个 Key 弹窗 → `GET /plugins/dsh-deepseek-chat/account-token` 200 `{ok:true}`（token 不打印）→ 「登录方式=DeepSeek 账号（推荐）」+「已登录」→ 切手动 Key 再切回 → 空 Key 真实生成成功。profile 未登录时运行时 SKIP | 1 次生成 |
-| `model-picker` | **SKIP（产品缺陷）** | 模型行在 API Key 下方、不在通用设置；聚焦输入框拉 `/models` 出下拉（名称+id 两行）、点选写 `chat-demo:model`、手输 ID 回车保存、恢复 `deepseek-flash`。**手动 Key 模式 `/models` 无鉴权头 → 401，下拉无法出现**（账号模式正常，见已知问题 2） | 0 |
+| `model-picker` | PASS | 模型行在 API Key 下方、不在通用设置；手动 Key 模式聚焦输入框拉 `/models` 出下拉（名称+id 两行、首条含 deepseek）、点选写 `chat-demo:model`、下拉关闭、手输 ID 回车保存、恢复 `deepseek-flash`。网络/凭据异常时留证后 SKIP | 0 |
 | `branch-edit` | PASS | 编辑首条消息 → 消息版本 pager 2/2 → 切回旧问题+旧回答 → 切回新分支 → 重新生成出第二个回答版本 → IndexedDB 树 ≥5 条 → reload 后 pager 仍在 | 3 次生成 |
 | `continue-reply` | PASS | 长回答 → 停止生成 → 「继续生成」→ 正文变长且按钮消失 | 2 次生成 |
 | `key-verify` | PASS | Key 掩码 → `sk-invalid…` → 「API Key 无效」→ 换回真 Key 恢复掩码 | 2 次 `/models` |
@@ -66,14 +66,11 @@ docs/e2e/README.md         # 本文件
 
 1. **GUI 端口会变**：默认 `55160` 只是兜底；当前端口从 `dsh web` 输出或会话系统提示取，
    用 `$env:DSH_E2E_GUI='http://127.0.0.1:<port>'` 传给 run.cjs。harness 检测到连接被拒会给出提示。
-2. **产品缺陷：手动 Key 模式模型列表拉取失败**。聚焦/点「获取模型」时 `GET /models` 返回 401：
-   `vendor/chat-demo/src/services/api/client.ts` 的 `listModels(apiKey)` **没有使用 apiKey**，
-   只调用 `authedRequest`；而 `authedRequest` 只附加账号 token（`accountAuthHeaders`），
-   Key 模式下没有任何 `Authorization`/`x-api-key` 头。对照同文件 `verifyApiKey`（L162-170）是正确的。
-   设置里因此显示「获取模型列表失败，可直接输入模型 ID，仍会保存」，下拉不出现（UI 已优雅降级）。
-   `model-picker` 因此 **SKIP** 并附证据（`model-picker-fetch-failed.png`）；账号模式下同一交互正常
-   （`model-picker.png`，下拉两条）。修复建议：`listModels` 像 `verifyApiKey` 一样带
-   `Authorization: Bearer <key>`（或 `x-api-key`）。
+2. **已修复（1.2.2 / 7da3b78）：手动 Key 模式模型列表 401**。此前 `listModels` 只附加账号 token，
+   手填 Key 时没带 `Authorization`/`x-api-key`，`GET /models` 返回 401、下拉不出现。现在 `listModels`
+   与 `verifyApiKey` 一致（账号模式用账号 token，Key 模式用 `Authorization: Bearer <key>`），
+   `model-picker` 已按正常断言路径 **PASS**（截图 `docs/e2e/model-picker.png`）。
+   若将来网络/凭据异常导致拿不到列表，检查会留 `model-picker-fetch-failed.png` 并如实 SKIP，不误判产品缺陷。
 3. **账号登录（免 Key）**：`chat-demo:auth-mode=account` + 空 Key 时不再弹 Key 提示；
    Host 路由仅 loopback、`cache-control: no-store`，token 只存内存、401 自动重取一次。
    `seedSettings` 默认 `auth-mode=key`（既有检查用种子 Key，不依赖当前登录态），
