@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+const cx = clsx
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   IconDarkOutline16,
@@ -103,7 +104,6 @@ const SettingsContent = () => {
         <div role="tabpanel" className={styles.content}>
           {section === 'general' ? (
             <>
-              <ModelSetting />
               <ThemeSetting />
               <LocaleSetting />
               <TtsVoiceSetting />
@@ -116,6 +116,7 @@ const SettingsContent = () => {
             <>
               <AuthModeSetting />
               <ApiKeyField editor={apiKeyEditor} />
+              <ModelSetting />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
               <SettingCell
@@ -381,100 +382,120 @@ const TtsVoiceSetting = () => {
   )
 }
 
-/** 插件改动：模型选择。列表来自 GET /models，也可以直接输入模型 ID。 */
-const CUSTOM_MODEL = '__custom_model__'
-
+/** 插件改动：模型选择。输入框可直接编辑，也能点开「获取模型」得到的列表挑选。 */
 const ModelSetting = () => {
   const t = useTranslate()
   const model = useSettings((state) => state.model)
   const authMode = useSettings((state) => state.authMode)
-  const [models, setModels] = useState<{ id: string; name?: string }[]>([])
-  const [custom, setCustom] = useState(false)
+  const [models, setModels] = useState<{ id: string; name?: string; contextWindow?: number }[]>([])
   const [draft, setDraft] = useState(model)
-  const [loaded, setLoaded] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    void listModels(useSettings.getState().apiKey ?? '')
-      .then((list) => {
-        if (!cancelled) {
-          setModels(list)
-          setLoaded(true)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setModels([])
-          setLoaded(true)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [authMode])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => setDraft(model), [model])
 
-  const options = models.map((item) => ({
-    value: item.id,
-    label: item.name ? item.name + ' · ' + item.id : item.id,
-  }))
-  const known = options.some((option) => option.value === model)
-  const isCustom = custom || (loaded && !known && model !== '')
+  const fetchModels = async () => {
+    setLoading(true)
+    setError(false)
+    try {
+      const list = await listModels(useSettings.getState().apiKey ?? '')
+      setModels(list)
+      setOpen(true)
+      if (!list.length) setError(true)
+    } catch {
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 点到组件外面就收起列表
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
 
   const commit = () => {
     const value = draft.trim()
-    if (value) {
-      setModel(value)
-    } else {
-      setDraft(model)
-    }
+    if (value && value !== model) setModel(value)
+    if (!value) setDraft(model)
+  }
+
+  const choose = (id: string) => {
+    setDraft(id)
+    setModel(id)
+    setOpen(false)
   }
 
   return (
     <SettingCell
       label={t('settingsModel')}
-      description={t('settingsModelHint')}
+      description={error ? t('modelFetchFailed') : t('settingsModelHint')}
       status={null}
       action={
-        <div className={styles.modelCell}>
-          <Select
-            ariaLabel={t('settingsModel')}
-            value={isCustom ? CUSTOM_MODEL : model}
-            options={options.concat([{ value: CUSTOM_MODEL, label: t('settingsModelCustom') }])}
-            onChange={(value) => {
-              if (value === CUSTOM_MODEL) {
-                setCustom(true)
-                return
-              }
-              setCustom(false)
-              setModel(value)
-            }}
-          />
-          {isCustom ? (
+        <div className={styles.modelRow} ref={wrapRef}>
+          <div className={styles.modelField}>
             <input
               className={styles.apiKeyInput}
               value={draft}
               placeholder={t('settingsModelPlaceholder')}
               spellCheck={false}
               autoComplete="off"
-              aria-label={t('settingsModelPlaceholder')}
+              aria-label={t('settingsModel')}
               onChange={(event) => setDraft(event.target.value)}
+              onFocus={() => {
+                if (!models.length && !loading) void fetchModels()
+                else setOpen(true)
+              }}
               onBlur={commit}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   commit()
+                  setOpen(false)
                 }
+                if (event.key === 'Escape') setOpen(false)
               }}
             />
-          ) : null}
+            {open && models.length ? (
+              <div className={styles.modelDropdown} role="listbox" aria-label={t('settingsModel')}>
+                {models.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    aria-selected={item.id === model}
+                    className={cx(styles.modelOption, item.id === model && styles.modelOptionActive)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => choose(item.id)}
+                  >
+                    <span className={styles.modelOptionName}>{item.name || item.id}</span>
+                    <span className={styles.modelOptionId}>{item.id}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          <Button
+            variant="outlined"
+            size="m"
+            className={styles.cellButton}
+            disabled={loading}
+            onClick={() => void fetchModels()}
+          >
+            {loading ? t('modelFetching') : t('modelFetch')}
+          </Button>
         </div>
       }
     />
   )
 }
 
-/** 插件改动：显示当前版本并在需要时检查已发布的索引 */
 const VersionSetting = () => {
   const t = useTranslate()
   const [state, setState] = useState<UpdateState | null>(null)
