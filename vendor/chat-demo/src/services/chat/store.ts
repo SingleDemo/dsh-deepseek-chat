@@ -32,8 +32,30 @@ import {
   type UserMessage,
 } from './types.js'
 
-/** deepseek-flash 同时支持深度思考与图片输入 */
+/** 默认模型：支持深度思考与图片输入 */
 const MODEL: ChatModel = 'deepseek-flash'
+/** 插件改动：联网搜索与读链接由 DeepSeek 执行，自定义模型不介入 */
+const TOOL_MODEL: ChatModel = 'deepseek-flash'
+
+/** 只有 DeepSeek 模型接受 thinking / tools / safety_check 这些扩展字段。 */
+const isDeepSeekModel = (id: string) => /^deepseek/i.test(id)
+
+/**
+ * 插件改动：把用户选择的模型与开关解析成实际请求。
+ * 非 DeepSeek 模型只做纯对话；需要搜索（或读链接）的那一轮交给 DeepSeek。
+ */
+const resolveRequestModel = (
+  model: string,
+  search: boolean
+): { model: ChatModel; extended: boolean; delegated: boolean } => {
+  if (isDeepSeekModel(model)) {
+    return { model, extended: true, delegated: false }
+  }
+  if (search) {
+    return { model: TOOL_MODEL, extended: true, delegated: true }
+  }
+  return { model, extended: false, delegated: false }
+}
 /** 所有生成请求统一携带的助手身份说明 */
 const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
@@ -255,12 +277,12 @@ export const bindChatPersistence = () => {
 
 /** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
 const createReply = (): AssistantMessage => {
-  const { thinking, search } = useSettings.getState()
+  const { thinking, search, model: preferred } = useSettings.getState()
   return {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
-    model: MODEL,
+    model: resolveRequestModel(preferred || MODEL, search).model,
     thinking,
     search,
     prefix: true,
@@ -764,7 +786,7 @@ export const continueReply = (sessionId: string, messageId: string) => {
   const reply: AssistantMessage = {
     ...previous,
     // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: previous.model ?? MODEL,
+    model: previous.model ?? useSettings.getState().model ?? MODEL,
     thinking: previous.thinking ?? thinking,
     search: previous.search ?? search,
     status: 'pending',
@@ -1051,19 +1073,27 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           initial.thinking ?? false,
           latestReminder
         )
+        const requestedModel = initial.model ?? useSettings.getState().model ?? MODEL
+        const searchEnabled = initial.search ?? false
+        const resolved = resolveRequestModel(requestedModel, searchEnabled)
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',
           {
-            model: initial.model ?? MODEL,
+            model: resolved.model,
             system: SYSTEM_PROMPT,
             messages,
-            thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
-            safety_check: SAFETY_CHECK,
-            ...(initial.thinking
-              ? { output_config: { effort: useSettings.getState().thinkingEffort } }
+            // 扩展字段只发给 DeepSeek；自定义模型走最朴素的 Messages 请求。
+            ...(resolved.extended
+              ? {
+                thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
+                safety_check: SAFETY_CHECK,
+                ...(initial.thinking
+                  ? { output_config: { effort: useSettings.getState().thinkingEffort } }
+                  : {}),
+                tools: serverTools(searchEnabled),
+              }
               : {}),
-            tools: serverTools(initial.search ?? false),
-            ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
+            ...(titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}),
           },
           controller.signal
         )

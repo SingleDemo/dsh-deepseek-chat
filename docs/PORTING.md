@@ -118,6 +118,24 @@ appear in the demo's General settings tab
 3. Decide how the demo's own sider interacts with the Harness rail (both are
    visible today; the demo sider is part of the app and stays for parity).
 
+## Model selection
+
+The demo hard-codes `deepseek-flash`. The plugin lets the user pick from
+`GET /models` or type any id:
+
+| File | Patch |
+| --- | --- |
+| `services/api/types.ts` | `ChatModel` is an open `string` |
+| `services/api/client.ts` | `listModels()` reads the same free listing endpoint |
+| `services/settings.ts` | `model` setting and storage key |
+| `services/chat/store.ts` | `resolveRequestModel()`: a non-DeepSeek id keeps plain chat and moves any search turn to `deepseek-flash`; thinking/tools/safety/title go only to DeepSeek models |
+| `components/settings/SettingsDialog.tsx` | 模型 row: listing plus a 自定义模型 input |
+| `i18n/zh.ts`, `i18n/en.ts` | Four new strings each |
+
+Verified live: a bogus id reaches the service (`passed no-such-model-xyz`), and
+with search on the same selection still answers with citations, because the turn
+is delegated to DeepSeek.
+
 ## Distribution and update checks
 
 - `package.json` is public (`dsh-deepseek-chat`, `engines.dsh`, repository,

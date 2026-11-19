@@ -124,6 +124,37 @@ const authedRequest = async (url: string, init: RequestInit): Promise<Response> 
   }
 }
 
+/** 一个可选模型；字段取服务端 listing，缺失即省略。 */
+export type ModelInfo = {
+  id: string
+  name?: string
+  contextWindow?: number
+  maxOutputTokens?: number
+}
+
+/**
+ * 插件改动：读取可用模型列表（与校验同一个免费接口）。
+ * 账号登录态或手填 Key 都由 authedRequest 统一附带凭据。
+ */
+export const listModels = async (apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]> => {
+  const response = await authedRequest(`${API_ORIGIN}/models`, { method: 'GET', signal })
+  const body = (await response.json()) as { data?: unknown }
+  const data = Array.isArray(body.data) ? body.data : []
+  const models: ModelInfo[] = []
+  for (const entry of data) {
+    if (!entry || typeof entry !== 'object') continue
+    const item = entry as Record<string, unknown>
+    if (typeof item.id !== 'string' || !item.id) continue
+    models.push({
+      id: item.id,
+      ...(typeof item.name === 'string' ? { name: item.name } : {}),
+      ...(typeof item.context_window === 'number' ? { contextWindow: item.context_window } : {}),
+      ...(typeof item.max_output_tokens === 'number' ? { maxOutputTokens: item.max_output_tokens } : {}),
+    })
+  }
+  return models
+}
+
 /**
  * 用 GET /models 校验凭据（不产生费用）。
  * 插件改动：账号登录时校验账号 token，手填 Key 时沿用 Bearer。

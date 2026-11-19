@@ -27,6 +27,7 @@ import {
   setApiBaseUrl,
   setThinkingEffort,
   setAuthMode,
+  setModel,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -37,6 +38,7 @@ import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyConfirm, ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { accountToken } from '../../plugin/account-auth.js'
+import { listModels } from '../../services/api/client.js'
 import { PLUGIN_VERSION, checkForUpdate, type UpdateState } from '../../plugin/update-check.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
@@ -101,6 +103,7 @@ const SettingsContent = () => {
         <div role="tabpanel" className={styles.content}>
           {section === 'general' ? (
             <>
+              <ModelSetting />
               <ThemeSetting />
               <LocaleSetting />
               <TtsVoiceSetting />
@@ -373,6 +376,99 @@ const TtsVoiceSetting = () => {
           ]}
           onChange={setTtsVoice}
         />
+      }
+    />
+  )
+}
+
+/** 插件改动：模型选择。列表来自 GET /models，也可以直接输入模型 ID。 */
+const CUSTOM_MODEL = '__custom_model__'
+
+const ModelSetting = () => {
+  const t = useTranslate()
+  const model = useSettings((state) => state.model)
+  const authMode = useSettings((state) => state.authMode)
+  const [models, setModels] = useState<{ id: string; name?: string }[]>([])
+  const [custom, setCustom] = useState(false)
+  const [draft, setDraft] = useState(model)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void listModels(useSettings.getState().apiKey ?? '')
+      .then((list) => {
+        if (!cancelled) {
+          setModels(list)
+          setLoaded(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setModels([])
+          setLoaded(true)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [authMode])
+
+  useEffect(() => setDraft(model), [model])
+
+  const options = models.map((item) => ({
+    value: item.id,
+    label: item.name ? item.name + ' · ' + item.id : item.id,
+  }))
+  const known = options.some((option) => option.value === model)
+  const isCustom = custom || (loaded && !known && model !== '')
+
+  const commit = () => {
+    const value = draft.trim()
+    if (value) {
+      setModel(value)
+    } else {
+      setDraft(model)
+    }
+  }
+
+  return (
+    <SettingCell
+      label={t('settingsModel')}
+      description={t('settingsModelHint')}
+      status={null}
+      action={
+        <div className={styles.modelCell}>
+          <Select
+            ariaLabel={t('settingsModel')}
+            value={isCustom ? CUSTOM_MODEL : model}
+            options={options.concat([{ value: CUSTOM_MODEL, label: t('settingsModelCustom') }])}
+            onChange={(value) => {
+              if (value === CUSTOM_MODEL) {
+                setCustom(true)
+                return
+              }
+              setCustom(false)
+              setModel(value)
+            }}
+          />
+          {isCustom ? (
+            <input
+              className={styles.apiKeyInput}
+              value={draft}
+              placeholder={t('settingsModelPlaceholder')}
+              spellCheck={false}
+              autoComplete="off"
+              aria-label={t('settingsModelPlaceholder')}
+              onChange={(event) => setDraft(event.target.value)}
+              onBlur={commit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  commit()
+                }
+              }}
+            />
+          ) : null}
+        </div>
       }
     />
   )

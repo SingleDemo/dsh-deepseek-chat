@@ -25,6 +25,8 @@ type Settings = {
   thinkingEffort: ThinkingEffort
   /** 插件额外能力：账号登录（默认）或手填 API Key */
   authMode: 'account' | 'key'
+  /** 插件额外能力：对话模型；非 DeepSeek 模型只用于普通对话 */
+  model: string
 }
 
 const KEYS = {
@@ -39,6 +41,7 @@ const KEYS = {
   apiBaseUrl: 'chat-demo:api-base-url',
   thinkingEffort: 'chat-demo:thinking-effort',
   authMode: 'chat-demo:auth-mode',
+  model: 'chat-demo:model',
 } as const
 
 const read = (key: string) => {
@@ -113,6 +116,7 @@ export const useSettings = create<Settings>(() => ({
       ? (read(KEYS.thinkingEffort) as ThinkingEffort)
       : 'high',
   authMode: read(KEYS.authMode) === 'key' ? 'key' : 'account',
+  model: read(KEYS.model) || 'deepseek-flash',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -169,4 +173,10 @@ export const setThinkingEffort = (thinkingEffort: ThinkingEffort) => {
 export const setAuthMode = (authMode: 'account' | 'key') => {
   write(KEYS.authMode, authMode)
   useSettings.setState({ authMode })
+}
+
+export const setModel = (model: string) => {
+  const value = model.trim()
+  write(KEYS.model, value || null)
+  useSettings.setState({ model: value || 'deepseek-flash' })
 }

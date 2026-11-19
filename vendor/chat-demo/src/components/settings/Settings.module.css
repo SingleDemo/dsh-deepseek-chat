@@ -456,3 +456,14 @@
   height: 16px;
   accent-color: var(--dsw-alias-brand-primary);
 }
+/* 插件改动：模型行里的选择器与自定义输入 */
+.modelCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.modelCell input {
+  width: 220px;
+}

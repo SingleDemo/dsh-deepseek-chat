@@ -113,6 +113,14 @@ rename, delete, and the bulk actions in Settings.
 
 ![A reply with an inline formula, a block formula, and a Mermaid flow chart with its Chart / Code switch](docs/screenshots/math.png)
 
+## Model selection
+
+**设置 → 通用设置 → 模型** lists what `GET /models` reports for your credential and
+accepts any model id typed by hand. A non-DeepSeek id is used for plain chat only:
+the request then carries no thinking, tools, or safety fields. Whenever web search
+is on, that turn runs on DeepSeek (`deepseek-flash`) so search and link reading
+keep working, and the answer says so in its source list.
+
 ## Settings, data, and location
 
 The Settings dialog has four sections:
