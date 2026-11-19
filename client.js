@@ -1911,7 +1911,12 @@ window.__ModuleLoader__.load({
           }
         };
         listModels = async (apiKey, signal) => {
-          const response = await authedRequest(`${API_ORIGIN}/models`, { method: "GET", signal });
+          const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {};
+          const response = await request(`${API_ORIGIN}/models`, {
+            method: "GET",
+            headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${apiKey}` },
+            signal
+          });
           const body = await response.json();
           const data = Array.isArray(body.data) ? body.data : [];
           const models = [];
@@ -39863,7 +39868,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.2.1";
+        PLUGIN_VERSION = "1.2.2";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");

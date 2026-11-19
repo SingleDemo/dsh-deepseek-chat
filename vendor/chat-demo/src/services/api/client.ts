@@ -137,7 +137,13 @@ export type ModelInfo = {
  * 账号登录态或手填 Key 都由 authedRequest 统一附带凭据。
  */
 export const listModels = async (apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]> => {
-  const response = await authedRequest(`${API_ORIGIN}/models`, { method: 'GET', signal })
+  // 与 verifyApiKey 一致：账号登录用账号 token，手填 Key 用 Bearer。
+  const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {}
+  const response = await request(`${API_ORIGIN}/models`, {
+    method: 'GET',
+    headers: 'x-dsh-auth-token' in account ? account : { Authorization: `Bearer ${apiKey}` },
+    signal,
+  })
   const body = (await response.json()) as { data?: unknown }
   const data = Array.isArray(body.data) ? body.data : []
   const models: ModelInfo[] = []

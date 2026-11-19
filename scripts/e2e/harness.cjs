@@ -1057,10 +1057,17 @@ async function openPage(options) {
     const hasAuthForm = Boolean(document.querySelector('input[type="password"], form[action*="login"]'));
     return {
       href,
+      text: text.slice(0, 120),
+      connectionError: /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|无法访问此网站|拒绝连接|This site can.t be reached/i.test(text),
       loginLike: hasAuthForm || /(登录|sign in|log in|未授权|unauthorized)/i.test(text),
       hasEntry: /DeepSeek\s*(?:对话|chat)/i.test(text),
     };
   });
+  if (login.connectionError) {
+    throw new Error('连不上 GUI ' + GUI + '（页面: ' + login.text
+      + '）— 端口可能已变，用 DSH_E2E_GUI=http://127.0.0.1:<端口> 指定当前 dsh web 地址'
+      + '（端口看 dsh web 输出或当前会话的系统提示）');
+  }
   if (login.loginLike && !login.hasEntry) {
     throw new Error('cookie 未通过 DSH 鉴权（落在登录页）: url=' + login.href);
   }
