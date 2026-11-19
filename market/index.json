@@ -28,11 +28,11 @@
       "versions": [
         {
           "version": "1.2.0",
-          "publishTimestamp": 1795099013,
+          "publishTimestamp": 1795100140,
           "source": {
             "type": "git",
             "url": "https://github.com/SingleDemo/dsh-deepseek-chat",
-            "commit": "a53aa7520a44afba95fe249828dcaa9a49395f13"
+            "commit": "ddf0e868cec0652001501a1de56d4db69352120a"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.3 <0.3.0"
