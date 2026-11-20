@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSH plugin index · SingleDemo</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0;
+    padding: 48px 24px 72px;
+    font: 15px/1.7 ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: #1f2328;
+    background: #fbfbfa;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e6e6e6; background: #141517; }
+    .card { background: #1c1d20; border-color: #2c2e33; }
+    code { background: #26282d; }
+    a { color: #7cc4ff; }
+  }
+  main { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; font-weight: 650; }
+  p.lead { margin: 0 0 28px; opacity: .7; }
+  .card {
+    border: 1px solid #e3e3e0; border-radius: 12px;
+    background: #fff; padding: 16px 18px; margin: 0 0 14px;
+  }
+  .card h2 { font-size: 15px; margin: 0 0 4px; font-weight: 620; }
+  .card p { margin: 0; opacity: .78; font-size: 13.5px; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12.5px; background: #f1f1ee; border-radius: 6px; padding: 2px 6px;
+    word-break: break-all;
+  }
+  a { color: #0969da; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ol { margin: 0; padding-left: 20px; }
+  li { margin: 4px 0; }
+  footer { margin-top: 28px; font-size: 12.5px; opacity: .55; }
+</style>
+</head>
+<body>
+<main>
+  <h1>DSH plugin index</h1>
+  <p class="lead">DeepSeek Harness 的插件索引，由 jsDelivr 与 GitHub Pages 分发同一份 <code>market/index.json</code>。</p>
+
+  <div class="card">
+    <h2>索引地址</h2>
+    <p><code>https://singledemo.github.io/dsh-deepseek-chat/market/index.json</code></p>
+    <p>备用：<code>https://testingcf.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json</code></p>
+  </div>
+
+  <div class="card">
+    <h2>在 Harness 里添加</h2>
+    <ol>
+      <li>打开 <strong>Plugins → Discover</strong>，启用 <em>Experimental plugins</em> 下的 <strong>Custom plugin indexes</strong>。</li>
+      <li><strong>Add index source</strong>，粘贴上面的索引地址。</li>
+      <li>在插件卡片上点 <strong>Install</strong>。</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h2>AI Chat</h2>
+    <p>DeepSeek 对话面板 · <a href="https://github.com/SingleDemo/dsh-deepseek-chat">SingleDemo/dsh-deepseek-chat</a></p>
+  </div>
+
+  <div class="card">
+    <h2>OpenCode 本地模型路由</h2>
+    <p>本机 OpenAI 兼容端点，转发到 OpenCode Go / Zen，带侧边栏面板 · <a href="https://github.com/SingleDemo/dsh-plugin-opencode-router">SingleDemo/dsh-plugin-opencode-router</a></p>
+  </div>
+
+  <footer>索引只含元数据：Harness 依据条目里的 git 源与 commit 拉取插件。源文件 <a href="market/index.json">market/index.json</a>。</footer>
+</main>
+</body>
+</html>

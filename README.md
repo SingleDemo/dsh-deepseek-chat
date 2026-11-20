@@ -200,8 +200,9 @@ without cloning anything:
 1. Open **Plugins → Discover** and switch on **Custom plugin indexes** under
    *Experimental plugins*.
 2. **Add index source** and paste
-   `https://testingcf.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json`
-   (the `cdn.jsdelivr.net` host resets connections on some networks; `fastly.jsdelivr.net` serves the same file)
+   `https://singledemo.github.io/dsh-deepseek-chat/market/index.json`
+   (same file on jsDelivr: `https://testingcf.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json`;
+   `cdn.jsdelivr.net` resets connections on some networks)
 3. Install **AI Chat** from its card and confirm the row under **Installed**.
 
 From the command line, install the indexed release or this directory:
