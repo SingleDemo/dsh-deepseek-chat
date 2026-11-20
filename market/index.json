@@ -28,11 +28,11 @@
       "versions": [
         {
           "version": "1.2.2",
-          "publishTimestamp": 1795102041,
+          "publishTimestamp": 1795186001,
           "source": {
             "type": "git",
             "url": "https://github.com/SingleDemo/dsh-deepseek-chat",
-            "commit": "7da3b78507e2609fa1540a7c9079ae97a0d847e9"
+            "commit": "2968c479bca8c1f508d967e0393b54721058afa8"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.3 <0.3.0"
@@ -69,6 +69,37 @@
             "type": "git",
             "url": "https://github.com/SingleDemo/dsh-deepseek-chat",
             "commit": "6d5589783de94c011dc465271d2687e69cf00801"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.3 <0.3.0"
+          }
+        }
+      ]
+    },
+    {
+      "name": "dsh-plugin-opencode-router",
+      "title": {
+        "en": "OpenCode model router",
+        "zh": "OpenCode 本地模型路由"
+      },
+      "description": {
+        "en": "Runs a loopback OpenAI-compatible endpoint in front of the OpenCode Go/Zen gateways: adds the x-opencode-session header they require, routes each model to the gateway that serves it, serves a live model list, and adds a sidebar panel for the URL, API key, models and recent requests.",
+        "zh": "在 DSH 里跑一个本机 OpenAI 兼容端点，转发到 OpenCode 的 Go / Zen 网关：自动补上网关强制要求的 x-opencode-session 头，按模型归属选择网关，提供实时模型列表，并在侧边栏加一个面板用于配置地址、key、浏览模型与查看最近请求。"
+      },
+      "icon": "icons/dsh-plugin-opencode-router.svg",
+      "author": "SingleDemo",
+      "homepage": "https://github.com/SingleDemo/dsh-plugin-opencode-router#readme",
+      "repository": {
+        "url": "https://github.com/SingleDemo/dsh-plugin-opencode-router"
+      },
+      "versions": [
+        {
+          "version": "0.3.0",
+          "publishTimestamp": 1795186001,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/SingleDemo/dsh-plugin-opencode-router",
+            "commit": "6fd41299e4d3bb9698a918d4b0b810708e8f4321"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.3 <0.3.0"
