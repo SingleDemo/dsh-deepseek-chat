@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage, usesOfficialEndpoint } from '../api/client.js'
+import { streamWithRelayTools } from '../api/relay-tools.js'
 import { runDirectTools } from './tools.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
@@ -1120,9 +1121,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           ? { model: TOOL_MODEL, extended: true, delegated: true }
           : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat)
         const requestKey = useOfficial ? (settings.apiKey ?? '') : (settings.chatApiKey || settings.apiKey || '')
-        const events = streamMessage(
-          requestKey,
-          {
+        const requestBody = {
             model: resolved.model,
             system: SYSTEM_PROMPT,
             messages,
@@ -1145,10 +1144,17 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
                   : {}),
               }),
             ...(titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}),
-          },
-          controller.signal,
-          useOfficial ? 'official' : 'chat'
-        )
+        }
+        // 自定义接口 + 智能搜索：服务端工具换成客户端工具，模型自己决定是否联网，
+        // 实际搜索/抓取由插件调用 DeepSeek 官方接口完成（语义与原版一致）。
+        const events = customChat && searchEnabled && !useOfficial
+          ? streamWithRelayTools(requestBody, controller.signal)
+          : streamMessage(
+            requestKey,
+            requestBody as unknown as CreateMessageRequest,
+            controller.signal,
+            useOfficial ? 'official' : 'chat'
+          )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {
           receivedContent ||= event.type === 'content_block_start'

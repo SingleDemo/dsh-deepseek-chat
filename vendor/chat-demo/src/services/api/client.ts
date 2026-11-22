@@ -275,6 +275,42 @@ export const officialComplete = async (
   )
   return (await response.json()) as Record<string, unknown>
 }
+/** 插件改动：向自定义对话接口发一次流式请求（带重试与 JSON 降级），供工具回环复用。 */
+export async function* streamChatCompletion(
+  body: Record<string, unknown>,
+  signal: AbortSignal
+): AsyncGenerator<MessageStreamEvent> {
+  const messages = Array.isArray(body.messages) ? body.messages.filter((message) => (message as { role?: string }).role !== 'latest_reminder') : []
+  const payload = { ...body, messages, stream: true }
+  const plain = await withRetry(
+    () =>
+      authedRequest(`${apiBaseUrl()}/messages`, {
+        method: 'POST',
+        headers: {
+          ...anthropicHeaders(chatApiKey(), false),
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream, application/json',
+        },
+        body: JSON.stringify(payload),
+        signal,
+      }),
+    signal
+  )
+  const contentType = plain.headers.get('Content-Type') ?? ''
+  if (contentType.includes('text/event-stream') && plain.body) {
+    yield* readEventStream(plain, signal)
+    return
+  }
+  let parsed: unknown
+  try {
+    parsed = await plain.json()
+  } catch {
+    throw new ApiError('protocol', '返回的内容无法解析')
+  }
+  for (const event of synthesizeEvents(parsed)) {
+    yield event
+  }
+}
 /** 一个可选模型；字段取服务端 listing，缺失即省略。 */
 export type ModelInfo = {
   id: string

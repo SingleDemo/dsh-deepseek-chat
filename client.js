@@ -904,8 +904,8 @@ window.__ModuleLoader__.load({
           write(KEYS.relayFallback, relayFallback ? "1" : null);
           useSettings2.setState({ relayFallback });
         };
-        setChatApiKey = (chatApiKey) => {
-          const value = chatApiKey && chatApiKey.trim() ? chatApiKey.trim() : null;
+        setChatApiKey = (chatApiKey2) => {
+          const value = chatApiKey2 && chatApiKey2.trim() ? chatApiKey2.trim() : null;
           write(KEYS.chatApiKey, value);
           useSettings2.setState({ chatApiKey: value });
         };
@@ -1834,6 +1834,37 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/api/client.ts
+    async function* streamChatCompletion(body, signal) {
+      const messages = Array.isArray(body.messages) ? body.messages.filter((message2) => message2.role !== "latest_reminder") : [];
+      const payload = { ...body, messages, stream: true };
+      const plain = await withRetry(
+        () => authedRequest(`${apiBaseUrl()}/messages`, {
+          method: "POST",
+          headers: {
+            ...anthropicHeaders(chatApiKey(), false),
+            "Content-Type": "application/json",
+            Accept: "text/event-stream, application/json"
+          },
+          body: JSON.stringify(payload),
+          signal
+        }),
+        signal
+      );
+      const contentType = plain.headers.get("Content-Type") ?? "";
+      if (contentType.includes("text/event-stream") && plain.body) {
+        yield* readEventStream(plain, signal);
+        return;
+      }
+      let parsed;
+      try {
+        parsed = await plain.json();
+      } catch {
+        throw new ApiError("protocol", "\u8FD4\u56DE\u7684\u5185\u5BB9\u65E0\u6CD5\u89E3\u6790");
+      }
+      for (const event of synthesizeEvents(parsed)) {
+        yield event;
+      }
+    }
     async function* streamMessage(apiKey, body, signal, mode = "chat") {
       if (mode === "official") {
         const endpoint = await officialEndpoint();
@@ -1955,7 +1986,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, chatApiKey, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -1975,6 +2006,10 @@ window.__ModuleLoader__.load({
           return /^https?:\/\/api\.deepseek\.com$/i.test(trimmed) ? `${trimmed}/anthropic/v1` : `${trimmed}/v1`;
         };
         apiBaseUrl = () => resolveBase(useSettings2.getState().apiBaseUrl);
+        chatApiKey = () => {
+          const settings = useSettings2.getState();
+          return settings.chatApiKey || settings.apiKey || "";
+        };
         officialEndpoint = async () => {
           if (usesAccountAuth()) {
             const account = await accountAuthHeaders(OFFICIAL_ORIGIN);
@@ -2182,6 +2217,215 @@ window.__ModuleLoader__.load({
           events.push({ type: "message_delta", delta: { stop_reason: stopReason } });
           events.push({ type: "message_stop" });
           return events;
+        };
+      }
+    });
+    
+    // vendor/chat-demo/src/services/api/relay-tools.ts
+    async function* streamWithRelayTools(body, signal) {
+      const messages = Array.isArray(body.messages) ? [...body.messages] : [];
+      const lastUser = [...body.messages ?? []].reverse().find((message2) => message2?.role === "user");
+      const fallback = typeof lastUser?.content === "string" ? lastUser.content : Array.isArray(lastUser?.content) ? lastUser.content.filter((block) => block?.type === "text").map((block) => block.text ?? "").join("\n") : "";
+      let offset = 0;
+      const MAX_TOOL_ROUNDS = 3;
+      for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
+        const offerTools = round < MAX_TOOL_ROUNDS;
+        const requestBody = offerTools ? { ...body, messages, tools: RELAY_TOOLS, tool_choice: { type: "auto" } } : { ...body, messages };
+        const calls = [];
+        let stopReason;
+        let started = 0;
+        for await (const event of streamChatCompletion(requestBody, signal)) {
+          if (event.type === "content_block_start") {
+            started += 1;
+            const block = event.content_block;
+            if (block && block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
+              calls.push({ id: block.id, name: block.name, input: block.input ?? {} });
+            }
+          }
+          if (event.type === "message_delta") {
+            const delta = event.delta;
+            if (delta?.stop_reason) stopReason = delta.stop_reason;
+          }
+          yield offsetEvent(event, offset, false);
+        }
+        offset += started;
+        if (!offerTools || stopReason !== "tool_use" || !calls.length) return;
+        const assistantContent = calls.map((call) => ({
+          type: "tool_use",
+          id: call.id,
+          name: call.name,
+          input: call.input
+        }));
+        const resultContent = [];
+        for (const call of calls) {
+          const run = await executeRelayTool(call.name, call.input, signal, fallback);
+          for (const block of run.blocks) {
+            yield { type: "content_block_start", index: offset++, content_block: block };
+            yield { type: "content_block_stop", index: offset - 1 };
+          }
+          resultContent.push({ type: "tool_result", tool_use_id: call.id, content: run.result });
+        }
+        messages.push({ role: "assistant", content: assistantContent });
+        messages.push({ role: "user", content: resultContent });
+      }
+    }
+    var RELAY_TOOLS, randomHex, toolId, officialAuth, callSearch, callFetch, executeRelayTool, offsetEvent;
+    var init_relay_tools = __esm({
+      "vendor/chat-demo/src/services/api/relay-tools.ts"() {
+        init_react_shim();
+        init_client();
+        RELAY_TOOLS = [
+          {
+            name: "web_search",
+            description: "Search the web for current information. Use it when the answer needs fresh news, recent events, prices, or anything beyond the training data.",
+            input_schema: {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "search keywords, can use site:/after:/before: operators" }
+              },
+              required: ["query"]
+            }
+          },
+          {
+            name: "read_url",
+            description: "Fetch and read a web page so the answer can rely on its content, e.g. when the user pasted a link.",
+            input_schema: {
+              type: "object",
+              properties: { url: { type: "string", description: "absolute http(s) url" } },
+              required: ["url"]
+            }
+          }
+        ];
+        randomHex = () => {
+          const bytes = new Uint8Array(6);
+          crypto.getRandomValues(bytes);
+          return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+        };
+        toolId = (kind) => `srvtoolu_${kind}_${randomHex()}`;
+        officialAuth = async () => {
+          const endpoint = await officialEndpoint();
+          return endpoint.headers;
+        };
+        callSearch = async (query3, signal) => {
+          const auth = await officialAuth();
+          const response = await request("https://api.deepseek.com/v1/tools/search", {
+            method: "POST",
+            headers: { ...auth, "content-type": "application/json" },
+            body: JSON.stringify({ query: query3, count: 8, need_content: false }),
+            signal
+          });
+          const payload = await response.json();
+          const rows = Array.isArray(payload.results) ? payload.results : [];
+          const sources = [];
+          for (const row of rows) {
+            if (!row || typeof row !== "object") continue;
+            const item = row;
+            if (typeof item.url !== "string" || typeof item.title !== "string") continue;
+            sources.push({
+              type: "web_search_result",
+              title: item.title,
+              url: item.url,
+              snippet: typeof item.summary === "string" ? item.summary : typeof item.snippet === "string" ? item.snippet : "",
+              site_name: typeof item.site_name === "string" ? item.site_name : null,
+              site_icon: typeof item.site_icon === "string" ? item.site_icon : null,
+              page_age: typeof item.date === "string" ? item.date : null,
+              encrypted_content: ""
+            });
+          }
+          const text9 = sources.slice(0, 8).map((source, index2) => `[${index2 + 1}] ${source.title} ${source.url}
+    ${source.snippet ?? ""}`.trim()).join("\n");
+          return { sources, text: text9 };
+        };
+        callFetch = async (url, signal) => {
+          const auth = await officialAuth();
+          const response = await request("https://api.deepseek.com/v1/tools/fetch", {
+            method: "POST",
+            headers: { ...auth, "content-type": "application/json" },
+            body: JSON.stringify({ url }),
+            signal
+          });
+          const payload = await response.json();
+          return {
+            title: typeof payload.title === "string" ? payload.title : url,
+            text: typeof payload.content === "string" ? payload.content.slice(0, 8e3) : ""
+          };
+        };
+        executeRelayTool = async (name, input, signal, fallback = "") => {
+          const link = typeof input.url === "string" && /^https?:\/\//i.test(input.url) ? input.url.trim() : (fallback.match(/https?:\/\/[^\s"'）)]+/) || [])[0];
+          if (name === "read_url" && link) {
+            const url = link;
+            const id2 = toolId("rl");
+            try {
+              const page = await callFetch(url, signal);
+              return {
+                blocks: [
+                  {
+                    type: "server_tool_use",
+                    id: id2,
+                    name: "deepseek_read_url",
+                    input: { action: "read_link", url },
+                    caller: { type: "direct" },
+                    kind: "read_link"
+                  },
+                  {
+                    type: "web_fetch_tool_result",
+                    tool_use_id: id2,
+                    content: {
+                      type: "web_fetch_result",
+                      url,
+                      content: { type: "document", source: { type: "text", media_type: "text/plain", data: "" }, title: page.title },
+                      published_at: null
+                    },
+                    kind: "read_link"
+                  }
+                ],
+                result: page.text ? `\u7F51\u9875\u300A${page.title}\u300B\u5185\u5BB9\uFF1A
+    ${page.text}` : "\u7F51\u9875\u5185\u5BB9\u4E3A\u7A7A"
+              };
+            } catch {
+              return {
+                blocks: [],
+                result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\u3002"
+              };
+            }
+          }
+          const query3 = typeof input.query === "string" && input.query.trim() ? input.query.trim() : fallback.trim() || String(input.query ?? "");
+          const id = toolId("s");
+          try {
+            const { sources, text: text9 } = await callSearch(query3, signal);
+            return {
+              blocks: [
+                {
+                  type: "server_tool_use",
+                  id,
+                  name: "deepseek_web_search",
+                  input: { action: "search", queries: [query3] },
+                  caller: { type: "direct" },
+                  kind: "search"
+                },
+                {
+                  type: "web_search_tool_result",
+                  tool_use_id: id,
+                  content: sources,
+                  kind: "search"
+                }
+              ],
+              result: text9 ? `\u641C\u7D22\u300C${query3}\u300D\u7684\u7ED3\u679C\uFF1A
+    ${text9}` : `\u641C\u7D22\u300C${query3}\u300D\u6CA1\u6709\u8FD4\u56DE\u7ED3\u679C\u3002`
+            };
+          } catch {
+            return { blocks: [], result: "\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u57FA\u4E8E\u5DF2\u6709\u77E5\u8BC6\u56DE\u7B54\u5E76\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002" };
+          }
+        };
+        offsetEvent = (event, offset, pad3) => {
+          if (event.type !== "content_block_start" && event.type !== "content_block_delta" && event.type !== "content_block_stop") {
+            return event;
+          }
+          const next2 = { ...event };
+          next2.index = Number(next2.index) + offset;
+          if (pad3 && event.type === "content_block_delta") {
+          }
+          return next2;
         };
       }
     });
@@ -4374,6 +4618,7 @@ window.__ModuleLoader__.load({
         init_esm();
         init_id();
         init_client();
+        init_relay_tools();
         init_errors();
         init_attachments();
         init_settings();
@@ -5254,26 +5499,27 @@ window.__ModuleLoader__.load({
                 const useOfficial = officialFallback;
                 const resolved = useOfficial ? { model: TOOL_MODEL, extended: true, delegated: true } : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat);
                 const requestKey = useOfficial ? settings.apiKey ?? "" : settings.chatApiKey || settings.apiKey || "";
-                const events = streamMessage(
-                  requestKey,
-                  {
-                    model: resolved.model,
-                    system: SYSTEM_PROMPT,
-                    messages,
-                    // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
-                    ...resolved.extended ? {
-                      thinking: { type: initial.thinking ? "enabled" : "disabled" },
-                      safety_check: SAFETY_CHECK,
-                      ...initial.thinking ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {},
-                      tools: serverTools(searchEnabled)
-                    } : {
-                      // 兼容端点：max_tokens 必填；DeepSeek 系模型沿用同一套思考与强度设定。
-                      max_tokens: isDeepSeekModel(resolved.model) ? 4096 : 2048,
-                      thinking: { type: initial.thinking ? "enabled" : "disabled" },
-                      ...initial.thinking && isDeepSeekModel(resolved.model) ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {}
-                    },
-                    ...titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}
+                const requestBody = {
+                  model: resolved.model,
+                  system: SYSTEM_PROMPT,
+                  messages,
+                  // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
+                  ...resolved.extended ? {
+                    thinking: { type: initial.thinking ? "enabled" : "disabled" },
+                    safety_check: SAFETY_CHECK,
+                    ...initial.thinking ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {},
+                    tools: serverTools(searchEnabled)
+                  } : {
+                    // 兼容端点：max_tokens 必填；DeepSeek 系模型沿用同一套思考与强度设定。
+                    max_tokens: isDeepSeekModel(resolved.model) ? 4096 : 2048,
+                    thinking: { type: initial.thinking ? "enabled" : "disabled" },
+                    ...initial.thinking && isDeepSeekModel(resolved.model) ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {}
                   },
+                  ...titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}
+                };
+                const events = customChat && searchEnabled && !useOfficial ? streamWithRelayTools(requestBody, controller.signal) : streamMessage(
+                  requestKey,
+                  requestBody,
                   controller.signal,
                   useOfficial ? "official" : "chat"
                 );
@@ -39228,10 +39474,10 @@ window.__ModuleLoader__.load({
                   if (!url && !result.signature.trim()) {
                     return [];
                   }
-                  const toolId = `${id}-${resultIndex}`;
-                  return toolBlocks(toolId, { action: "read_link", url }, "read_link", {
+                  const toolId2 = `${id}-${resultIndex}`;
+                  return toolBlocks(toolId2, { action: "read_link", url }, "read_link", {
                     type: "web_fetch_tool_result",
-                    tool_use_id: toolId,
+                    tool_use_id: toolId2,
                     kind: "read_link",
                     content: fetched(url, result.title ?? null, null),
                     signature: result.signature
@@ -40132,7 +40378,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.7.0";
+        PLUGIN_VERSION = "1.8.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40488,9 +40734,9 @@ window.__ModuleLoader__.load({
         };
         ChatApiKeySetting = () => {
           const t = useTranslate();
-          const chatApiKey = useSettings2((state) => state.chatApiKey);
-          const [draft, setDraft] = (0, import_react34.useState)(chatApiKey ?? "");
-          (0, import_react34.useEffect)(() => setDraft(chatApiKey ?? ""), [chatApiKey]);
+          const chatApiKey2 = useSettings2((state) => state.chatApiKey);
+          const [draft, setDraft] = (0, import_react34.useState)(chatApiKey2 ?? "");
+          (0, import_react34.useEffect)(() => setDraft(chatApiKey2 ?? ""), [chatApiKey2]);
           const commit = () => setChatApiKey(draft.trim() || null);
           return /* @__PURE__ */ React.createElement(
             SettingCell,
