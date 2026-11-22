@@ -1113,38 +1113,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
               .map((block) => block.text)
               .join('\n')
             : ''
-        // 智能搜索开关即是联网开关：先展示「正在检索」，再让模型判断并执行。
-        if (customChat && searchEnabled && !request.prefix && !controller.signal.aborted) {
-          const pending = { type: 'text', text: translate('replyToolStart'), isTemplate: true }
-          reply = { ...reply, blocks: [pending as unknown as ReplyBlock, ...reply.blocks] }
-          updateReply(sessionId, reply)
-          persist(sessionId)
-          try {
-            const phase = await runDirectTools({
-              question: questionText,
-              signal: controller.signal,
-            })
-            toolAttempted = true
-            reply = { ...reply, blocks: reply.blocks.filter((block) => block !== (pending as unknown as ReplyBlock)) }
-            if (phase && !controller.signal.aborted) {
-              toolContext = phase.context
-              if (phase.blocks.length) {
-                reply = { ...reply, blocks: [...phase.blocks, ...reply.blocks] }
-              }
-            }
-            updateReply(sessionId, reply)
-            persist(sessionId)
-          } catch {
-            // 工具阶段失败（超时、模型不支持工具、接口异常）就按普通对话发送，
-            // 但要让用户知道这一轮没有联网。
-            reply = { ...reply, blocks: reply.blocks.filter((block) => block !== (pending as unknown as ReplyBlock)) }
-            if (!controller.signal.aborted) {
-              reply = withNotice(reply, 'replyToolNotice')
-            }
-            updateReply(sessionId, reply)
-            persist(sessionId)
-          }
-        }
+        // 搜索是否发生完全交给模型：原版就是声明 tools 后由模型决定，这里不强制检索。
         // 只有用户显式开启「官方兜底」时才换模型；否则一律用用户配置的模型。
         const useOfficial = officialFallback
         const resolved = useOfficial
@@ -1155,7 +1124,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           requestKey,
           {
             model: resolved.model,
-            system: (isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT) + toolContext,
+            system: SYSTEM_PROMPT,
             messages,
             // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
             ...(resolved.extended

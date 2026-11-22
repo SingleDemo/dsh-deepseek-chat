@@ -1955,7 +1955,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, officialComplete, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -2103,19 +2103,6 @@ window.__ModuleLoader__.load({
             throw error;
           }
         };
-        officialComplete = async (body, signal) => {
-          const endpoint = await officialEndpoint();
-          const response = await withRetry(
-            () => request(`${endpoint.base}/messages`, {
-              method: "POST",
-              headers: { ...endpoint.headers, "content-type": "application/json", accept: "application/json" },
-              body: JSON.stringify({ stream: false, ...body }),
-              signal
-            }),
-            signal
-          );
-          return await response.json();
-        };
         listModels = async (apiKey, signal) => {
           const settings = useSettings2.getState();
           const chatKey = settings.chatApiKey || apiKey;
@@ -2195,142 +2182,6 @@ window.__ModuleLoader__.load({
           events.push({ type: "message_delta", delta: { stop_reason: stopReason } });
           events.push({ type: "message_stop" });
           return events;
-        };
-      }
-    });
-    
-    // vendor/chat-demo/src/services/chat/tools.ts
-    var randomHex, toolUseId, withTimeout, executeSearch, executeRead, searchBlocks, runDirectTools;
-    var init_tools = __esm({
-      "vendor/chat-demo/src/services/chat/tools.ts"() {
-        init_react_shim();
-        init_client();
-        randomHex = () => {
-          const bytes = new Uint8Array(8);
-          crypto.getRandomValues(bytes);
-          return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-        };
-        toolUseId = (kind) => `srvtoolu_${kind}_${randomHex()}`;
-        withTimeout = (signal, ms) => {
-          try {
-            return AbortSignal.any([signal, AbortSignal.timeout(ms)]);
-          } catch {
-            return signal;
-          }
-        };
-        executeSearch = async (query3, signal) => {
-          const payload = await officialComplete(
-            {
-              model: "deepseek-flash",
-              max_tokens: 1024,
-              thinking: { type: "disabled" },
-              messages: [{ role: "user", content: query3 }],
-              tools: [{ type: "deepseek_web_search", name: "deepseek_web_search" }],
-              safety_check: { level: "high" }
-            },
-            withTimeout(signal, 6e4)
-          );
-          const blocks = Array.isArray(payload.content) ? payload.content : [];
-          const sources = [];
-          for (const block of blocks) {
-            if (!block || typeof block !== "object") continue;
-            const item = block;
-            if (item.type !== "web_search_tool_result" || !Array.isArray(item.content)) continue;
-            for (const entry of item.content) {
-              if (entry && typeof entry === "object" && entry.type === "web_search_result") {
-                sources.push(entry);
-              }
-            }
-          }
-          const text9 = sources.slice(0, 6).map((source, index2) => `[${index2 + 1}] ${source.title} ${source.url}
-    ${source.snippet ?? ""}`.trim()).join("\n");
-          return { sources, text: text9 };
-        };
-        executeRead = async (url, signal) => {
-          const payload = await officialComplete(
-            {
-              model: "deepseek-flash",
-              max_tokens: 1600,
-              thinking: { type: "disabled" },
-              messages: [{ role: "user", content: `\u8BF7\u9605\u8BFB\u8FD9\u4E2A\u7F51\u9875\u5E76\u63D0\u53D6\u4E0E\u95EE\u9898\u6709\u5173\u7684\u8981\u70B9\uFF1A${url}` }],
-              tools: [{ type: "deepseek_read_url", name: "deepseek_read_url" }],
-              safety_check: { level: "high" }
-            },
-            withTimeout(signal, 6e4)
-          );
-          const blocks = Array.isArray(payload.content) ? payload.content : [];
-          const text9 = blocks.filter((block) => block && typeof block === "object" && block.type === "text").map((block) => String(block.text ?? "")).join("\n").slice(0, 4e3);
-          return { text: text9 };
-        };
-        searchBlocks = (query3, id, sources) => [
-          {
-            type: "server_tool_use",
-            id,
-            name: "deepseek_web_search",
-            input: { action: "search", queries: [query3] },
-            caller: { type: "direct" },
-            kind: "search"
-          },
-          {
-            type: "web_search_tool_result",
-            tool_use_id: id,
-            content: sources,
-            kind: "search"
-          }
-        ];
-        runDirectTools = async (input) => {
-          const question = input.question.trim();
-          if (!question) return null;
-          const link = question.match(/https?:\/\/[^\s"'）)]+/)?.[0];
-          try {
-            if (link) {
-              const id2 = toolUseId("rl");
-              const { text: text10 } = await executeRead(link, input.signal);
-              const blocks = [
-                {
-                  type: "server_tool_use",
-                  id: id2,
-                  name: "deepseek_read_url",
-                  input: { action: "read_link", url: link },
-                  caller: { type: "direct" },
-                  kind: "read_link"
-                },
-                {
-                  type: "web_fetch_tool_result",
-                  tool_use_id: id2,
-                  content: {
-                    type: "web_fetch_result",
-                    url: link,
-                    content: { type: "document", source: { type: "text", media_type: "text/plain", data: "" }, title: null },
-                    published_at: null
-                  },
-                  kind: "read_link"
-                }
-              ];
-              return {
-                blocks,
-                context: text10 ? `
-    
-    \u4EE5\u4E0B\u662F\u521A\u521A\u8BFB\u53D6\u7684\u94FE\u63A5\u5185\u5BB9\uFF0C\u56DE\u7B54\u65F6\u53EF\u76F4\u63A5\u4F7F\u7528\uFF1A
-    ${text10}` : "",
-                searches: 0,
-                reads: 1
-              };
-            }
-            const id = toolUseId("s");
-            const { sources, text: text9 } = await executeSearch(question, input.signal);
-            return {
-              blocks: searchBlocks(question, id, sources),
-              context: text9 ? `
-    
-    \u4EE5\u4E0B\u662F\u521A\u521A\u8054\u7F51\u53D6\u5F97\u7684\u8D44\u6599\uFF0C\u56DE\u7B54\u65F6\u53EF\u76F4\u63A5\u4F7F\u7528\uFF1B\u4E0D\u8981\u58F0\u79F0\u65E0\u6CD5\u8054\u7F51\uFF1A
-    ${text9}` : "",
-              searches: 1,
-              reads: 0
-            };
-          } catch {
-            return null;
-          }
         };
       }
     });
@@ -4516,14 +4367,13 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/chat/store.ts
-    var MODEL, TOOL_MODEL, isDeepSeekModel, resolveRequestModel, SYSTEM_PROMPT, NEUTRAL_SYSTEM_PROMPT, SESSION_CACHE_LIMIT, SAFETY_CHECK, FILE_RETRY_LIMIT, FILE_RETRY_BASE_DELAY, serverTools, titleRequests, useChatStore, get, set, sortSessions, getSession, getStreamController, sameSummary, sessionAccess, unsavedSessions, pendingFiles, deletingSessions, deletionTasks, streamFlushes, accessSequence, historyEpoch, initTask, sessionLoads, touchSession, trimSessionCache, updateSession, updateReply, persist, retrySaveSessions, bindChatPersistence, withNotice, createReply, settleInterrupted, initChat, ensureSessionLoaded, waitForIdle, replaceHistory, mergeHistory, newChat, selectSession, renameSession2, removeSession, removeSessionData, stopReply, sendMessage, regenerateReply, editMessage, selectMessageVersion, continueReply, retryUpload, saveServerIds, ensureServerId, refreshRequest, prepareFiles, collectServerFileIds, reuploadInvalidatedFiles, waitForRetry, streamReply;
+    var MODEL, TOOL_MODEL, isDeepSeekModel, resolveRequestModel, SYSTEM_PROMPT, SESSION_CACHE_LIMIT, SAFETY_CHECK, FILE_RETRY_LIMIT, FILE_RETRY_BASE_DELAY, serverTools, titleRequests, useChatStore, get, set, sortSessions, getSession, getStreamController, sameSummary, sessionAccess, unsavedSessions, pendingFiles, deletingSessions, deletionTasks, streamFlushes, accessSequence, historyEpoch, initTask, sessionLoads, touchSession, trimSessionCache, updateSession, updateReply, persist, retrySaveSessions, bindChatPersistence, withNotice, createReply, settleInterrupted, initChat, ensureSessionLoaded, waitForIdle, replaceHistory, mergeHistory, newChat, selectSession, renameSession2, removeSession, removeSessionData, stopReply, sendMessage, regenerateReply, editMessage, selectMessageVersion, continueReply, retryUpload, saveServerIds, ensureServerId, refreshRequest, prepareFiles, collectServerFileIds, reuploadInvalidatedFiles, waitForRetry, streamReply;
     var init_store = __esm({
       "vendor/chat-demo/src/services/chat/store.ts"() {
         init_react_shim();
         init_esm();
         init_id();
         init_client();
-        init_tools();
         init_errors();
         init_attachments();
         init_settings();
@@ -4550,7 +4400,6 @@ window.__ModuleLoader__.load({
           return { model, extended: false, delegated: false };
         };
         SYSTEM_PROMPT = "\u8BE5\u52A9\u624B\u4E3ADeepSeek\uFF0C\u7531\u6DF1\u5EA6\u6C42\u7D22\u516C\u53F8\u521B\u9020\u3002";
-        NEUTRAL_SYSTEM_PROMPT = "You are a helpful assistant.";
         SESSION_CACHE_LIMIT = 5;
         SAFETY_CHECK = { level: "high" };
         FILE_RETRY_LIMIT = 2;
@@ -5402,35 +5251,6 @@ window.__ModuleLoader__.load({
                 let toolAttempted = false;
                 const lastMessage = messages[messages.length - 1];
                 const questionText = typeof lastMessage?.content === "string" ? lastMessage.content : Array.isArray(lastMessage?.content) ? lastMessage.content.filter((block) => block.type === "text").map((block) => block.text).join("\n") : "";
-                if (customChat && searchEnabled && !request2.prefix && !controller.signal.aborted) {
-                  const pending2 = { type: "text", text: translate("replyToolStart"), isTemplate: true };
-                  reply = { ...reply, blocks: [pending2, ...reply.blocks] };
-                  updateReply(sessionId2, reply);
-                  persist(sessionId2);
-                  try {
-                    const phase = await runDirectTools({
-                      question: questionText,
-                      signal: controller.signal
-                    });
-                    toolAttempted = true;
-                    reply = { ...reply, blocks: reply.blocks.filter((block) => block !== pending2) };
-                    if (phase && !controller.signal.aborted) {
-                      toolContext = phase.context;
-                      if (phase.blocks.length) {
-                        reply = { ...reply, blocks: [...phase.blocks, ...reply.blocks] };
-                      }
-                    }
-                    updateReply(sessionId2, reply);
-                    persist(sessionId2);
-                  } catch {
-                    reply = { ...reply, blocks: reply.blocks.filter((block) => block !== pending2) };
-                    if (!controller.signal.aborted) {
-                      reply = withNotice(reply, "replyToolNotice");
-                    }
-                    updateReply(sessionId2, reply);
-                    persist(sessionId2);
-                  }
-                }
                 const useOfficial = officialFallback;
                 const resolved = useOfficial ? { model: TOOL_MODEL, extended: true, delegated: true } : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat);
                 const requestKey = useOfficial ? settings.apiKey ?? "" : settings.chatApiKey || settings.apiKey || "";
@@ -5438,7 +5258,7 @@ window.__ModuleLoader__.load({
                   requestKey,
                   {
                     model: resolved.model,
-                    system: (isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT) + toolContext,
+                    system: SYSTEM_PROMPT,
                     messages,
                     // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
                     ...resolved.extended ? {
@@ -39322,9 +39142,9 @@ window.__ModuleLoader__.load({
           },
           ...result ? [result] : []
         ];
-        fetchResult = (toolUseId2, content3) => ({
+        fetchResult = (toolUseId, content3) => ({
           type: "web_fetch_tool_result",
-          tool_use_id: toolUseId2,
+          tool_use_id: toolUseId,
           kind: "deep_search",
           content: content3
         });
@@ -40312,7 +40132,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.6.3";
+        PLUGIN_VERSION = "1.7.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
