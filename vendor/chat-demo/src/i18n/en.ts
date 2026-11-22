@@ -189,7 +189,7 @@ export const en = {
   settingsApiBaseUrl: 'Chat endpoint',
   settingsApiBaseUrlHint: 'Used for plain chat; leave empty for DeepSeek, or paste a relay origin (its /v1 is added)',
   settingsChatApiKey: 'Chat endpoint key',
-  settingsChatApiKeyHint: 'Key for the relay or self-hosted chat endpoint; empty reuses the DeepSeek credential above',
+  settingsChatApiKeyHint: 'Key for the relay or self-hosted endpoint; required, because the account login only works with DeepSeek itself',
   settingsChatApiKeyPlaceholder: 'Empty reuses the official credential',
   settingsAuthModeHint: 'powers web search, link reading, read-aloud and speech input',
   settingsApiBaseUrlPlaceholder: 'Leave empty to use the default',

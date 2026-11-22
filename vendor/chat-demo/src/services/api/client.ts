@@ -147,8 +147,9 @@ const inferenceOrigin = (): string => {
  * Authorization，且 CORS 预检只允许少数请求头，所以那边只发 Bearer。
  */
 const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => {
+  // 自定义对话接口只能用它的 Key：账号登录的 token 只对官方 origin 有效。
   if (!usesOfficialEndpoint()) {
-    return usesAccountAuth() ? {} : { authorization: `Bearer ${apiKey}` }
+    return apiKey ? { authorization: `Bearer ${apiKey}` } : {}
   }
   return {
     ...(usesAccountAuth() ? {} : { 'x-api-key': apiKey }),

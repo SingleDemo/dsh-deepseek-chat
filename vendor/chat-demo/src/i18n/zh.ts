@@ -181,7 +181,7 @@ export const zh = {
   settingsApiBaseUrl: '对话接口地址',
   settingsApiBaseUrlHint: '普通对话用；留空走官方 DeepSeek，中转站填 origin 即可（自动补 /v1）',
   settingsChatApiKey: '对话接口 Key',
-  settingsChatApiKeyHint: '中转站或自建接口的 Key；留空则复用上面的 DeepSeek 凭据',
+  settingsChatApiKeyHint: '中转站/自建接口的 Key，必须填（账号登录态只对 DeepSeek 官方有效）',
   settingsChatApiKeyPlaceholder: '留空复用官方凭据',
   settingsAuthModeHint: '用于联网搜索、读链接、朗读、语音识别',
   settingsApiBaseUrlPlaceholder: '留空使用默认地址',

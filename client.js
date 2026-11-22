@@ -1092,7 +1092,7 @@ window.__ModuleLoader__.load({
           settingsApiBaseUrl: "Chat endpoint",
           settingsApiBaseUrlHint: "Used for plain chat; leave empty for DeepSeek, or paste a relay origin (its /v1 is added)",
           settingsChatApiKey: "Chat endpoint key",
-          settingsChatApiKeyHint: "Key for the relay or self-hosted chat endpoint; empty reuses the DeepSeek credential above",
+          settingsChatApiKeyHint: "Key for the relay or self-hosted endpoint; required, because the account login only works with DeepSeek itself",
           settingsChatApiKeyPlaceholder: "Empty reuses the official credential",
           settingsAuthModeHint: "powers web search, link reading, read-aloud and speech input",
           settingsApiBaseUrlPlaceholder: "Leave empty to use the default",
@@ -1306,7 +1306,7 @@ window.__ModuleLoader__.load({
           settingsApiBaseUrl: "\u5BF9\u8BDD\u63A5\u53E3\u5730\u5740",
           settingsApiBaseUrlHint: "\u666E\u901A\u5BF9\u8BDD\u7528\uFF1B\u7559\u7A7A\u8D70\u5B98\u65B9 DeepSeek\uFF0C\u4E2D\u8F6C\u7AD9\u586B origin \u5373\u53EF\uFF08\u81EA\u52A8\u8865 /v1\uFF09",
           settingsChatApiKey: "\u5BF9\u8BDD\u63A5\u53E3 Key",
-          settingsChatApiKeyHint: "\u4E2D\u8F6C\u7AD9\u6216\u81EA\u5EFA\u63A5\u53E3\u7684 Key\uFF1B\u7559\u7A7A\u5219\u590D\u7528\u4E0A\u9762\u7684 DeepSeek \u51ED\u636E",
+          settingsChatApiKeyHint: "\u4E2D\u8F6C\u7AD9/\u81EA\u5EFA\u63A5\u53E3\u7684 Key\uFF0C\u5FC5\u987B\u586B\uFF08\u8D26\u53F7\u767B\u5F55\u6001\u53EA\u5BF9 DeepSeek \u5B98\u65B9\u6709\u6548\uFF09",
           settingsChatApiKeyPlaceholder: "\u7559\u7A7A\u590D\u7528\u5B98\u65B9\u51ED\u636E",
           settingsAuthModeHint: "\u7528\u4E8E\u8054\u7F51\u641C\u7D22\u3001\u8BFB\u94FE\u63A5\u3001\u6717\u8BFB\u3001\u8BED\u97F3\u8BC6\u522B",
           settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740",
@@ -1972,7 +1972,7 @@ window.__ModuleLoader__.load({
         };
         anthropicHeaders = (apiKey, beta) => {
           if (!usesOfficialEndpoint()) {
-            return usesAccountAuth() ? {} : { authorization: `Bearer ${apiKey}` };
+            return apiKey ? { authorization: `Bearer ${apiKey}` } : {};
           }
           return {
             ...usesAccountAuth() ? {} : { "x-api-key": apiKey },
@@ -40000,7 +40000,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.4.3";
+        PLUGIN_VERSION = "1.4.4";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
