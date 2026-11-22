@@ -205,6 +205,8 @@ export const en = {
   modelFetch: 'Fetch models',
   modelFetching: 'Fetching…',
   modelFetchFailed: 'Could not fetch the model list; you can still type an id, it is saved',
+  modelSearchPlaceholder: 'Search models…',
+  modelNoMatch: 'No matching model',
   settingsModelPlaceholder: 'Click to pick a model or type an id',
   settingsModelHint: 'A non-DeepSeek model handles plain chat only; web search and link reading run on DeepSeek',
   settingsVersion: 'Version',

@@ -197,6 +197,8 @@ export const zh = {
   modelFetch: '获取模型',
   modelFetching: '获取中…',
   modelFetchFailed: '获取模型列表失败，可直接输入模型 ID，仍会保存',
+  modelSearchPlaceholder: '搜索模型…',
+  modelNoMatch: '没有匹配的模型',
   settingsModelPlaceholder: '点击选择或直接输入模型 ID',
   settingsModelHint: '非 DeepSeek 模型只用于普通对话；联网搜索与读链接由 DeepSeek 执行',
   settingsVersion: '版本',

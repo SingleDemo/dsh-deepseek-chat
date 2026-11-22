@@ -429,7 +429,9 @@ const ModelSetting = () => {
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
+  const [query, setQuery] = useState('')
   const wrapRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => setDraft(model), [model])
 
@@ -458,6 +460,18 @@ const ModelSetting = () => {
     document.addEventListener('mousedown', onDown)
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
+
+  useEffect(() => {
+    if (open && models.length) {
+      setQuery('')
+      window.setTimeout(() => searchRef.current?.focus(), 0)
+    }
+  }, [open, models.length])
+
+  const keyword = query.trim().toLowerCase()
+  const filtered = keyword
+    ? models.filter((item) => (item.id + ' ' + (item.name || '')).toLowerCase().includes(keyword))
+    : models
 
   const commit = () => {
     const value = draft.trim()
@@ -502,7 +516,25 @@ const ModelSetting = () => {
             />
             {open && models.length ? (
               <div className={styles.modelDropdown} role="listbox" aria-label={t('settingsModel')}>
-                {models.map((item) => (
+                <input
+                  ref={searchRef}
+                  className={styles.modelSearch}
+                  value={query}
+                  placeholder={t('modelSearchPlaceholder')}
+                  spellCheck={false}
+                  autoComplete="off"
+                  aria-label={t('modelSearchPlaceholder')}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') setOpen(false)
+                    if (event.key === 'Enter' && filtered.length) choose(filtered[0].id)
+                  }}
+                />
+                {filtered.length === 0 ? (
+                  <div className={styles.modelEmpty}>{t('modelNoMatch')}</div>
+                ) : null}
+                {filtered.slice(0, 200).map((item) => (
                   <button
                     key={item.id}
                     type="button"
