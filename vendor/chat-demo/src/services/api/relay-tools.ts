@@ -6,6 +6,8 @@
  * 模型自己决定要不要调用，调用后由插件请求 DeepSeek 官方 Search / Fetch 接口
  * 执行，再把结果作为 tool_result 回填，模型继续作答。
  *
+ * 只在「自定义对话接口」下使用；官方端点（DSH 登录 / 官方 Key）保持原生行为。
+ *
  * 执行用的官方接口：
  * - POST https://api.deepseek.com/v1/tools/search  { query, count, need_content }
  * - POST https://api.deepseek.com/v1/tools/fetch   { url }
@@ -40,7 +42,7 @@ export const RELAY_TOOLS = [
 ]
 
 type ToolRun = {
-  /** 展示在回答里的工具调用/结果块 */
+  /** 展示在回答里的结果块（调用块已经提前下发） */
   blocks: ReplyBlock[]
   /** 回填给模型的工具结果文本 */
   result: string
@@ -57,6 +59,56 @@ const toolId = (kind: 's' | 'rl') => `srvtoolu_${kind}_${randomHex()}`
 const officialAuth = async (): Promise<Record<string, string>> => {
   const endpoint = await officialEndpoint()
   return endpoint.headers
+}
+
+const linkFrom = (input: Record<string, unknown>, fallback: string): string | undefined => {
+  const raw = typeof input.url === 'string' ? input.url.trim() : ''
+  const candidate = /^https?:\/\//i.test(raw) ? raw : (fallback.match(/https?:\/\/[^\s"'）)]+/) || [])[0]
+  return candidate
+}
+
+const queryFrom = (input: Record<string, unknown>, fallback: string): string => {
+  if (typeof input.query === 'string' && input.query.trim()) return input.query.trim()
+  return fallback.trim() || String(input.query ?? '')
+}
+
+/**
+ * 先下发的「工具调用」块：界面据此立即显示「正在搜索 xxx」，
+ * 与原版服务端工具先下发 server_tool_use 的顺序一致。
+ */
+export const buildUseBlock = (
+  name: string,
+  input: Record<string, unknown>,
+  fallback = ''
+): { id: string; block: ReplyBlock } => {
+  if (name === 'read_url') {
+    const id = toolId('rl')
+    const url = linkFrom(input, fallback) ?? ''
+    return {
+      id,
+      block: {
+        type: 'server_tool_use',
+        id,
+        name: 'deepseek_read_url',
+        input: { action: 'read_link', url },
+        caller: { type: 'direct' },
+        kind: 'read_link',
+      } as unknown as ReplyBlock,
+    }
+  }
+  const id = toolId('s')
+  const query = queryFrom(input, fallback)
+  return {
+    id,
+    block: {
+      type: 'server_tool_use',
+      id,
+      name: 'deepseek_web_search',
+      input: { action: 'search', queries: [query] },
+      caller: { type: 'direct' },
+      kind: 'search',
+    } as unknown as ReplyBlock,
+  }
 }
 
 /** 调用官方 Search 接口 */
@@ -112,38 +164,37 @@ const callFetch = async (url: string, signal: AbortSignal): Promise<{ title: str
   }
 }
 
-/** 执行一次工具调用，返回可展示的块与回填文本。 */
+/**
+ * 执行一次工具调用，只返回结果块（调用块已由 buildUseBlock 提前下发）。
+ * 传入的 id 必须与调用块的 id 一致，tool_result 才能对上。
+ */
 export const executeRelayTool = async (
   name: string,
   input: Record<string, unknown>,
   signal: AbortSignal,
-  fallback = ''
+  fallback = '',
+  id = toolId('s')
 ): Promise<ToolRun> => {
-  const link = typeof input.url === 'string' && /^https?:\/\//i.test(input.url)
-    ? input.url.trim()
-    : (fallback.match(/https?:\/\/[^\s"'）)]+/) || [])[0]
-  if (name === 'read_url' && link) {
-    const url = link
-    const id = toolId('rl')
+  if (name === 'read_url') {
+    const url = linkFrom(input, fallback)
+    if (!url) {
+      return { blocks: [], result: 'read_url 需要一个合法的 http(s) 链接，请改用 web_search 或说明无法读取。' }
+    }
     try {
       const page = await callFetch(url, signal)
       return {
         blocks: [
-          {
-            type: 'server_tool_use',
-            id,
-            name: 'deepseek_read_url',
-            input: { action: 'read_link', url },
-            caller: { type: 'direct' },
-            kind: 'read_link',
-          } as unknown as ReplyBlock,
           {
             type: 'web_fetch_tool_result',
             tool_use_id: id,
             content: {
               type: 'web_fetch_result',
               url,
-              content: { type: 'document', source: { type: 'text', media_type: 'text/plain', data: '' }, title: page.title },
+              content: {
+                type: 'document',
+                source: { type: 'text', media_type: 'text/plain', data: '' },
+                title: page.title,
+              },
               published_at: null,
             },
             kind: 'read_link',
@@ -152,33 +203,17 @@ export const executeRelayTool = async (
         result: page.text ? `网页《${page.title}》内容：\n${page.text}` : '网页内容为空',
       }
     } catch {
-      return {
-        blocks: [],
-        result: '读取该链接失败，请说明无法访问。',
-      }
+      return { blocks: [], result: '读取该链接失败，请说明无法访问。' }
     }
   }
   if (name !== 'web_search') {
     return { blocks: [], result: `未知工具：${name}。可用工具只有 web_search 和 read_url。` }
   }
-  // 默认按搜索处理
-  // 中转站偶尔把 tool_use 的 input 丢了：这时用用户原问题兜底，保证真的能搜到东西。
-  const query = typeof input.query === 'string' && input.query.trim()
-    ? input.query.trim()
-    : (fallback.trim() || String(input.query ?? ''))
-  const id = toolId('s')
+  const query = queryFrom(input, fallback)
   try {
     const { sources, text } = await callSearch(query, signal)
     return {
       blocks: [
-        {
-          type: 'server_tool_use',
-          id,
-          name: 'deepseek_web_search',
-          input: { action: 'search', queries: [query] },
-          caller: { type: 'direct' },
-          kind: 'search',
-        } as unknown as ReplyBlock,
         {
           type: 'web_search_tool_result',
           tool_use_id: id,
@@ -193,24 +228,23 @@ export const executeRelayTool = async (
   }
 }
 
-export type { MessageStreamEvent }
-
 /** 给事件加上统一偏移，避免多轮之间 content_block 索引冲突。 */
-const offsetEvent = (event: MessageStreamEvent, offset: number, pad: boolean): MessageStreamEvent => {
-  if (event.type !== 'content_block_start' && event.type !== 'content_block_delta' && event.type !== 'content_block_stop') {
+const offsetEvent = (event: MessageStreamEvent, offset: number): MessageStreamEvent => {
+  if (
+    event.type !== 'content_block_start' &&
+    event.type !== 'content_block_delta' &&
+    event.type !== 'content_block_stop'
+  ) {
     return event
   }
   const next = { ...(event as unknown as Record<string, unknown>) }
   next.index = Number(next.index) + offset
-  if (pad && event.type === 'content_block_delta') {
-    // 思考增量在第二轮不应再算进第一轮的思考块：按文本增量处理即可
-  }
   return next as unknown as MessageStreamEvent
 }
 
 /**
- * 自定义接口的完整一轮：先带工具请求，模型若调用工具就由插件执行，
- * 把结果回填后继续请求，直到模型给出最终回答（最多三轮）。
+ * 自定义接口的完整一轮：先带工具请求，模型若调用工具就先把「正在搜索」发到界面，
+ * 再由插件执行，把结果回填后继续请求，直到模型给出最终回答（最多四轮）。
  */
 export async function* streamWithRelayTools(
   body: Record<string, unknown>,
@@ -254,47 +288,56 @@ export async function* streamWithRelayTools(
       if (offerTools) {
         buffered.push(event)
       } else {
-        yield offsetEvent(event, offset, false)
+        yield offsetEvent(event, offset)
       }
     }
     if (!offerTools) return
     // 模型这一轮没有调用工具 → 它已经直接作答，把本轮内容补发给界面。
     if (stopReason !== 'tool_use' || !calls.length) {
-      for (const event of buffered) yield offsetEvent(event, offset, false)
+      for (const event of buffered) yield offsetEvent(event, offset)
       return
     }
-    // 确实调用了工具：中间轮的思考/正文不展示（与原版服务端工具一致），只保留工具步骤。
-    const assistantContent: unknown[] = calls.map((call) => ({
-      type: 'tool_use',
-      id: call.id,
-      name: call.name,
-      input: call.input,
-    }))
-    // 输出被 token 上限截断时，工具参数可能不完整：不执行，回填错误让模型重发。
-    const truncated = stopReason === 'length'
+
     const batch = calls.slice(0, 3)
+    const plans = batch.map((call) => {
+      const use = buildUseBlock(call.name, call.input, fallback)
+      return { call, id: use.id, block: use.block }
+    })
+    // 1) 先下发调用块：界面立即出现「搜索 xxx / 阅读 xxx」的步骤。
+    for (const plan of plans) {
+      yield { type: 'content_block_start', index: offset++, content_block: plan.block } as unknown as MessageStreamEvent
+      yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
+    }
+    // 2) 执行。输出被 token 上限截断时参数可能不完整，不执行，回填错误让模型重发。
+    const truncated = stopReason === 'length'
     const runs = truncated
       ? batch.map(() => ({
         blocks: [] as ReplyBlock[],
         result: '工具调用因输出长度被截断，参数可能不完整。请不要执行，改用更短的参数重新调用。',
       }))
       : await Promise.all(
-        batch.map((call) => executeRelayTool(call.name, call.input, signal, fallback).catch(() => ({
-          blocks: [] as ReplyBlock[],
-          result: '工具执行失败，请基于已有信息回答并说明无法联网。',
-        })))
+        plans.map((plan) =>
+          executeRelayTool(plan.call.name, plan.call.input, signal, fallback, plan.id).catch(() => ({
+            blocks: [] as ReplyBlock[],
+            result: '工具执行失败，请基于已有信息回答并说明无法联网。',
+          }))
+        )
       )
+    // 3) 再下发结果块（与原版「先调用块、后结果块」一致）。
     const resultContent: unknown[] = []
-    for (let i = 0; i < batch.length; i += 1) {
-      const call = batch[i]
+    for (let i = 0; i < plans.length; i += 1) {
+      const plan = plans[i]
       const run = runs[i]
       for (const block of run.blocks) {
         yield { type: 'content_block_start', index: offset++, content_block: block } as unknown as MessageStreamEvent
         yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
       }
-      resultContent.push({ type: 'tool_result', tool_use_id: call.id, content: run.result })
+      resultContent.push({ type: 'tool_result', tool_use_id: plan.id, content: run.result })
     }
-    messages.push({ role: 'assistant', content: assistantContent })
+    messages.push({
+      role: 'assistant',
+      content: batch.map((call) => ({ type: 'tool_use', id: call.id, name: call.name, input: call.input })),
+    })
     messages.push({ role: 'user', content: resultContent })
     // 连续两轮工具都没产出（全部报错）就停手，避免无限重试烧额度。
     if (runs.every((run) => run.blocks.length === 0)) {

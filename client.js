@@ -2285,42 +2285,49 @@ window.__ModuleLoader__.load({
           if (offerTools) {
             buffered.push(event);
           } else {
-            yield offsetEvent(event, offset, false);
+            yield offsetEvent(event, offset);
           }
         }
         if (!offerTools) return;
         if (stopReason !== "tool_use" || !calls.length) {
-          for (const event of buffered) yield offsetEvent(event, offset, false);
+          for (const event of buffered) yield offsetEvent(event, offset);
           return;
         }
-        const assistantContent = calls.map((call) => ({
-          type: "tool_use",
-          id: call.id,
-          name: call.name,
-          input: call.input
-        }));
-        const truncated = stopReason === "length";
         const batch = calls.slice(0, 3);
+        const plans = batch.map((call) => {
+          const use = buildUseBlock(call.name, call.input, fallback);
+          return { call, id: use.id, block: use.block };
+        });
+        for (const plan of plans) {
+          yield { type: "content_block_start", index: offset++, content_block: plan.block };
+          yield { type: "content_block_stop", index: offset - 1 };
+        }
+        const truncated = stopReason === "length";
         const runs = truncated ? batch.map(() => ({
           blocks: [],
           result: "\u5DE5\u5177\u8C03\u7528\u56E0\u8F93\u51FA\u957F\u5EA6\u88AB\u622A\u65AD\uFF0C\u53C2\u6570\u53EF\u80FD\u4E0D\u5B8C\u6574\u3002\u8BF7\u4E0D\u8981\u6267\u884C\uFF0C\u6539\u7528\u66F4\u77ED\u7684\u53C2\u6570\u91CD\u65B0\u8C03\u7528\u3002"
         })) : await Promise.all(
-          batch.map((call) => executeRelayTool(call.name, call.input, signal, fallback).catch(() => ({
-            blocks: [],
-            result: "\u5DE5\u5177\u6267\u884C\u5931\u8D25\uFF0C\u8BF7\u57FA\u4E8E\u5DF2\u6709\u4FE1\u606F\u56DE\u7B54\u5E76\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002"
-          })))
+          plans.map(
+            (plan) => executeRelayTool(plan.call.name, plan.call.input, signal, fallback, plan.id).catch(() => ({
+              blocks: [],
+              result: "\u5DE5\u5177\u6267\u884C\u5931\u8D25\uFF0C\u8BF7\u57FA\u4E8E\u5DF2\u6709\u4FE1\u606F\u56DE\u7B54\u5E76\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002"
+            }))
+          )
         );
         const resultContent = [];
-        for (let i = 0; i < batch.length; i += 1) {
-          const call = batch[i];
+        for (let i = 0; i < plans.length; i += 1) {
+          const plan = plans[i];
           const run = runs[i];
           for (const block of run.blocks) {
             yield { type: "content_block_start", index: offset++, content_block: block };
             yield { type: "content_block_stop", index: offset - 1 };
           }
-          resultContent.push({ type: "tool_result", tool_use_id: call.id, content: run.result });
+          resultContent.push({ type: "tool_result", tool_use_id: plan.id, content: run.result });
         }
-        messages.push({ role: "assistant", content: assistantContent });
+        messages.push({
+          role: "assistant",
+          content: batch.map((call) => ({ type: "tool_use", id: call.id, name: call.name, input: call.input }))
+        });
         messages.push({ role: "user", content: resultContent });
         if (runs.every((run) => run.blocks.length === 0)) {
           failedRounds += 1;
@@ -2330,7 +2337,7 @@ window.__ModuleLoader__.load({
         }
       }
     }
-    var RELAY_TOOLS, randomHex, toolId, officialAuth, callSearch, callFetch, executeRelayTool, offsetEvent;
+    var RELAY_TOOLS, randomHex, toolId, officialAuth, linkFrom, queryFrom, buildUseBlock, callSearch, callFetch, executeRelayTool, offsetEvent;
     var init_relay_tools = __esm({
       "vendor/chat-demo/src/services/api/relay-tools.ts"() {
         init_react_shim();
@@ -2366,6 +2373,45 @@ window.__ModuleLoader__.load({
         officialAuth = async () => {
           const endpoint = await officialEndpoint();
           return endpoint.headers;
+        };
+        linkFrom = (input, fallback) => {
+          const raw = typeof input.url === "string" ? input.url.trim() : "";
+          const candidate = /^https?:\/\//i.test(raw) ? raw : (fallback.match(/https?:\/\/[^\s"'）)]+/) || [])[0];
+          return candidate;
+        };
+        queryFrom = (input, fallback) => {
+          if (typeof input.query === "string" && input.query.trim()) return input.query.trim();
+          return fallback.trim() || String(input.query ?? "");
+        };
+        buildUseBlock = (name, input, fallback = "") => {
+          if (name === "read_url") {
+            const id2 = toolId("rl");
+            const url = linkFrom(input, fallback) ?? "";
+            return {
+              id: id2,
+              block: {
+                type: "server_tool_use",
+                id: id2,
+                name: "deepseek_read_url",
+                input: { action: "read_link", url },
+                caller: { type: "direct" },
+                kind: "read_link"
+              }
+            };
+          }
+          const id = toolId("s");
+          const query3 = queryFrom(input, fallback);
+          return {
+            id,
+            block: {
+              type: "server_tool_use",
+              id,
+              name: "deepseek_web_search",
+              input: { action: "search", queries: [query3] },
+              caller: { type: "direct" },
+              kind: "search"
+            }
+          };
         };
         callSearch = async (query3, signal) => {
           const auth = await officialAuth();
@@ -2411,30 +2457,27 @@ window.__ModuleLoader__.load({
             text: typeof payload.content === "string" ? payload.content.slice(0, 8e3) : ""
           };
         };
-        executeRelayTool = async (name, input, signal, fallback = "") => {
-          const link = typeof input.url === "string" && /^https?:\/\//i.test(input.url) ? input.url.trim() : (fallback.match(/https?:\/\/[^\s"'）)]+/) || [])[0];
-          if (name === "read_url" && link) {
-            const url = link;
-            const id2 = toolId("rl");
+        executeRelayTool = async (name, input, signal, fallback = "", id = toolId("s")) => {
+          if (name === "read_url") {
+            const url = linkFrom(input, fallback);
+            if (!url) {
+              return { blocks: [], result: "read_url \u9700\u8981\u4E00\u4E2A\u5408\u6CD5\u7684 http(s) \u94FE\u63A5\uFF0C\u8BF7\u6539\u7528 web_search \u6216\u8BF4\u660E\u65E0\u6CD5\u8BFB\u53D6\u3002" };
+            }
             try {
               const page = await callFetch(url, signal);
               return {
                 blocks: [
                   {
-                    type: "server_tool_use",
-                    id: id2,
-                    name: "deepseek_read_url",
-                    input: { action: "read_link", url },
-                    caller: { type: "direct" },
-                    kind: "read_link"
-                  },
-                  {
                     type: "web_fetch_tool_result",
-                    tool_use_id: id2,
+                    tool_use_id: id,
                     content: {
                       type: "web_fetch_result",
                       url,
-                      content: { type: "document", source: { type: "text", media_type: "text/plain", data: "" }, title: page.title },
+                      content: {
+                        type: "document",
+                        source: { type: "text", media_type: "text/plain", data: "" },
+                        title: page.title
+                      },
                       published_at: null
                     },
                     kind: "read_link"
@@ -2444,29 +2487,17 @@ window.__ModuleLoader__.load({
     ${page.text}` : "\u7F51\u9875\u5185\u5BB9\u4E3A\u7A7A"
               };
             } catch {
-              return {
-                blocks: [],
-                result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\u3002"
-              };
+              return { blocks: [], result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\u3002" };
             }
           }
           if (name !== "web_search") {
             return { blocks: [], result: `\u672A\u77E5\u5DE5\u5177\uFF1A${name}\u3002\u53EF\u7528\u5DE5\u5177\u53EA\u6709 web_search \u548C read_url\u3002` };
           }
-          const query3 = typeof input.query === "string" && input.query.trim() ? input.query.trim() : fallback.trim() || String(input.query ?? "");
-          const id = toolId("s");
+          const query3 = queryFrom(input, fallback);
           try {
             const { sources, text: text9 } = await callSearch(query3, signal);
             return {
               blocks: [
-                {
-                  type: "server_tool_use",
-                  id,
-                  name: "deepseek_web_search",
-                  input: { action: "search", queries: [query3] },
-                  caller: { type: "direct" },
-                  kind: "search"
-                },
                 {
                   type: "web_search_tool_result",
                   tool_use_id: id,
@@ -2481,14 +2512,12 @@ window.__ModuleLoader__.load({
             return { blocks: [], result: "\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u57FA\u4E8E\u5DF2\u6709\u77E5\u8BC6\u56DE\u7B54\u5E76\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002" };
           }
         };
-        offsetEvent = (event, offset, pad3) => {
+        offsetEvent = (event, offset) => {
           if (event.type !== "content_block_start" && event.type !== "content_block_delta" && event.type !== "content_block_stop") {
             return event;
           }
           const next2 = { ...event };
           next2.index = Number(next2.index) + offset;
-          if (pad3 && event.type === "content_block_delta") {
-          }
           return next2;
         };
       }
@@ -40468,7 +40497,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.10.1";
+        PLUGIN_VERSION = "1.11.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
