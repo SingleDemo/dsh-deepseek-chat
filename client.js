@@ -2263,16 +2263,15 @@ window.__ModuleLoader__.load({
       const lastUser = [...body.messages ?? []].reverse().find((message2) => message2?.role === "user");
       const fallback = typeof lastUser?.content === "string" ? lastUser.content : Array.isArray(lastUser?.content) ? lastUser.content.filter((block) => block?.type === "text").map((block) => block.text ?? "").join("\n") : "";
       let offset = 0;
-      const MAX_TOOL_ROUNDS = 3;
+      const MAX_TOOL_ROUNDS = 4;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
         const offerTools = round < MAX_TOOL_ROUNDS;
         const requestBody = offerTools ? { ...body, messages, tools: RELAY_TOOLS, tool_choice: { type: "auto" } } : { ...body, messages };
         const calls = [];
+        const buffered = [];
         let stopReason;
-        let started = 0;
         for await (const event of streamChatCompletion(requestBody, signal)) {
           if (event.type === "content_block_start") {
-            started += 1;
             const block = event.content_block;
             if (block && block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
               calls.push({ id: block.id, name: block.name, input: block.input ?? {} });
@@ -2282,10 +2281,17 @@ window.__ModuleLoader__.load({
             const delta = event.delta;
             if (delta?.stop_reason) stopReason = delta.stop_reason;
           }
-          yield offsetEvent(event, offset, false);
+          if (offerTools) {
+            buffered.push(event);
+          } else {
+            yield offsetEvent(event, offset, false);
+          }
         }
-        offset += started;
-        if (!offerTools || stopReason !== "tool_use" || !calls.length) return;
+        if (!offerTools) return;
+        if (stopReason !== "tool_use" || !calls.length) {
+          for (const event of buffered) yield offsetEvent(event, offset, false);
+          return;
+        }
         const assistantContent = calls.map((call) => ({
           type: "tool_use",
           id: call.id,
@@ -2293,7 +2299,7 @@ window.__ModuleLoader__.load({
           input: call.input
         }));
         const resultContent = [];
-        for (const call of calls) {
+        for (const call of calls.slice(0, 3)) {
           const run = await executeRelayTool(call.name, call.input, signal, fallback);
           for (const block of run.blocks) {
             yield { type: "content_block_start", index: offset++, content_block: block };
@@ -40440,7 +40446,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.9.0";
+        PLUGIN_VERSION = "1.9.1";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");

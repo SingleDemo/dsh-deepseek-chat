@@ -214,8 +214,7 @@ export async function* streamWithRelayTools(
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
   const messages: unknown[] = Array.isArray(body.messages) ? [...(body.messages as unknown[])] : []
-  // 最近一条用户消息的纯文本，作为工具参数的兜底
-  const lastUser = [...(body.messages as { role?: string; content?: unknown }[] ?? [])]
+  const lastUser = [...((body.messages as { role?: string; content?: unknown }[]) ?? [])]
     .reverse()
     .find((message) => message?.role === 'user')
   const fallback = typeof lastUser?.content === 'string'
@@ -227,7 +226,7 @@ export async function* streamWithRelayTools(
         .join('\n')
       : ''
   let offset = 0
-  const MAX_TOOL_ROUNDS = 3
+  const MAX_TOOL_ROUNDS = 4
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     // 最后一轮不再声明工具，逼模型给出最终回答，而不是继续调用。
     const offerTools = round < MAX_TOOL_ROUNDS
@@ -235,11 +234,10 @@ export async function* streamWithRelayTools(
       ? { ...body, messages, tools: RELAY_TOOLS, tool_choice: { type: 'auto' } }
       : { ...body, messages }
     const calls: { id: string; name: string; input: Record<string, unknown> }[] = []
+    const buffered: MessageStreamEvent[] = []
     let stopReason: string | undefined
-    let started = 0
     for await (const event of streamChatCompletion(requestBody, signal)) {
       if (event.type === 'content_block_start') {
-        started += 1
         const block = (event as unknown as { content_block?: Record<string, unknown> }).content_block
         if (block && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
           calls.push({ id: block.id, name: block.name, input: (block.input as Record<string, unknown>) ?? {} })
@@ -249,10 +247,19 @@ export async function* streamWithRelayTools(
         const delta = (event as unknown as { delta?: { stop_reason?: string } }).delta
         if (delta?.stop_reason) stopReason = delta.stop_reason
       }
-      yield offsetEvent(event, offset, false)
+      if (offerTools) {
+        buffered.push(event)
+      } else {
+        yield offsetEvent(event, offset, false)
+      }
     }
-    offset += started
-    if (!offerTools || stopReason !== 'tool_use' || !calls.length) return
+    if (!offerTools) return
+    // 模型这一轮没有调用工具 → 它已经直接作答，把本轮内容补发给界面。
+    if (stopReason !== 'tool_use' || !calls.length) {
+      for (const event of buffered) yield offsetEvent(event, offset, false)
+      return
+    }
+    // 确实调用了工具：中间轮的思考/正文不展示（与原版服务端工具一致），只保留工具步骤。
     const assistantContent: unknown[] = calls.map((call) => ({
       type: 'tool_use',
       id: call.id,
@@ -260,7 +267,7 @@ export async function* streamWithRelayTools(
       input: call.input,
     }))
     const resultContent: unknown[] = []
-    for (const call of calls) {
+    for (const call of calls.slice(0, 3)) {
       const run = await executeRelayTool(call.name, call.input, signal, fallback)
       for (const block of run.blocks) {
         yield { type: 'content_block_start', index: offset++, content_block: block } as unknown as MessageStreamEvent
