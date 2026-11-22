@@ -269,14 +269,24 @@ export async function* streamWithRelayTools(
     // 最后一轮不再声明工具，逼模型给出最终回答，而不是继续调用。
     const offerTools = round < MAX_TOOL_ROUNDS
     const requestBody = offerTools
-      ? { ...body, messages, tools: RELAY_TOOLS, tool_choice: { type: 'auto' } }
-      : { ...body, messages }
+      ? { ...body, messages, tools: RELAY_TOOLS }
+      : {
+        ...body,
+        messages,
+        // 最后一轮不再给工具，并在提示里明确要求直接作答。
+        system: `${String(body.system ?? '')}\n\n本轮不要再调用任何工具，请直接基于已有信息给出完整回答。`,
+      }
     const calls: { id: string; name: string; input: Record<string, unknown> }[] = []
     const buffered: MessageStreamEvent[] = []
     let stopReason: string | undefined
+    let sawText = false
+    let currentBlockKind = ''
+    const roundBase = offset
+    let roundBlocks = 0
     for await (const event of streamChatCompletion(requestBody, signal)) {
       if (event.type === 'content_block_start') {
         const block = (event as unknown as { content_block?: Record<string, unknown> }).content_block
+        if (block && block.type === 'text') sawText = true
         if (block && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
           calls.push({ id: block.id, name: block.name, input: (block.input as Record<string, unknown>) ?? {} })
         }
@@ -286,12 +296,22 @@ export async function* streamWithRelayTools(
         if (delta?.stop_reason) stopReason = delta.stop_reason
       }
       if (offerTools) {
+        // 中间轮的思考/正文都不进回答区（与原版服务端工具一致），只保留工具步骤；
+        // 进度由工具块和「已获取 N 个网页」提示体现。
         buffered.push(event)
       } else {
         yield offsetEvent(event, offset)
       }
     }
-    if (!offerTools) return
+    offset = roundBase + roundBlocks
+    if (!offerTools) {
+      if (!sawText && !signal.aborted) {
+        const notice = '模型这一轮没有生成正文，请重试；如果持续出现，建议先关闭深度思考。'
+        yield { type: 'content_block_start', index: offset++, content_block: { type: 'text', text: notice } } as unknown as MessageStreamEvent
+        yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
+      }
+      return
+    }
     // 模型这一轮没有调用工具 → 它已经直接作答，把本轮内容补发给界面。
     if (stopReason !== 'tool_use' || !calls.length) {
       for (const event of buffered) yield offsetEvent(event, offset)
@@ -338,6 +358,21 @@ export async function* streamWithRelayTools(
       role: 'assistant',
       content: batch.map((call) => ({ type: 'tool_use', id: call.id, name: call.name, input: call.input })),
     })
+    // 让用户知道现在在等模型生成：只提示一次，数字是本轮真实来源数。
+    const sources = runs.reduce(
+      (total, run) =>
+        total +
+        run.blocks.reduce((count, block) => {
+          const content = (block as { content?: unknown }).content
+          return count + (Array.isArray(content) ? content.length : 0)
+        }, 0),
+      0
+    )
+    if (sources > 0 && round === 0) {
+      const progress = `🔎 已获取 ${sources} 个网页，模型正在组织回答…`
+      yield { type: 'content_block_start', index: offset++, content_block: { type: 'text', text: progress } } as unknown as MessageStreamEvent
+      yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
+    }
     messages.push({ role: 'user', content: resultContent })
     // 连续两轮工具都没产出（全部报错）就停手，避免无限重试烧额度。
     if (runs.every((run) => run.blocks.length === 0)) {

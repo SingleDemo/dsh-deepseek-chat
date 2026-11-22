@@ -1,6 +1,6 @@
 {
     "name":  "dsh-deepseek-chat",
-    "version":  "1.11.0",
+    "version":  "1.11.1",
     "type":  "module",
     "license":  "MIT",
     "exports":  {

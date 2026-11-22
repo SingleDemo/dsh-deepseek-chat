@@ -2267,13 +2267,25 @@ window.__ModuleLoader__.load({
       const MAX_TOOL_ROUNDS = 4;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
         const offerTools = round < MAX_TOOL_ROUNDS;
-        const requestBody = offerTools ? { ...body, messages, tools: RELAY_TOOLS, tool_choice: { type: "auto" } } : { ...body, messages };
+        const requestBody = offerTools ? { ...body, messages, tools: RELAY_TOOLS } : {
+          ...body,
+          messages,
+          // 最后一轮不再给工具，并在提示里明确要求直接作答。
+          system: `${String(body.system ?? "")}
+    
+    \u672C\u8F6E\u4E0D\u8981\u518D\u8C03\u7528\u4EFB\u4F55\u5DE5\u5177\uFF0C\u8BF7\u76F4\u63A5\u57FA\u4E8E\u5DF2\u6709\u4FE1\u606F\u7ED9\u51FA\u5B8C\u6574\u56DE\u7B54\u3002`
+        };
         const calls = [];
         const buffered = [];
         let stopReason;
+        let sawText = false;
+        let currentBlockKind = "";
+        const roundBase = offset;
+        let roundBlocks = 0;
         for await (const event of streamChatCompletion(requestBody, signal)) {
           if (event.type === "content_block_start") {
             const block = event.content_block;
+            if (block && block.type === "text") sawText = true;
             if (block && block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
               calls.push({ id: block.id, name: block.name, input: block.input ?? {} });
             }
@@ -2288,7 +2300,15 @@ window.__ModuleLoader__.load({
             yield offsetEvent(event, offset);
           }
         }
-        if (!offerTools) return;
+        offset = roundBase + roundBlocks;
+        if (!offerTools) {
+          if (!sawText && !signal.aborted) {
+            const notice = "\u6A21\u578B\u8FD9\u4E00\u8F6E\u6CA1\u6709\u751F\u6210\u6B63\u6587\uFF0C\u8BF7\u91CD\u8BD5\uFF1B\u5982\u679C\u6301\u7EED\u51FA\u73B0\uFF0C\u5EFA\u8BAE\u5148\u5173\u95ED\u6DF1\u5EA6\u601D\u8003\u3002";
+            yield { type: "content_block_start", index: offset++, content_block: { type: "text", text: notice } };
+            yield { type: "content_block_stop", index: offset - 1 };
+          }
+          return;
+        }
         if (stopReason !== "tool_use" || !calls.length) {
           for (const event of buffered) yield offsetEvent(event, offset);
           return;
@@ -2328,6 +2348,18 @@ window.__ModuleLoader__.load({
           role: "assistant",
           content: batch.map((call) => ({ type: "tool_use", id: call.id, name: call.name, input: call.input }))
         });
+        const sources = runs.reduce(
+          (total, run) => total + run.blocks.reduce((count2, block) => {
+            const content3 = block.content;
+            return count2 + (Array.isArray(content3) ? content3.length : 0);
+          }, 0),
+          0
+        );
+        if (sources > 0 && round === 0) {
+          const progress = `\u{1F50E} \u5DF2\u83B7\u53D6 ${sources} \u4E2A\u7F51\u9875\uFF0C\u6A21\u578B\u6B63\u5728\u7EC4\u7EC7\u56DE\u7B54\u2026`;
+          yield { type: "content_block_start", index: offset++, content_block: { type: "text", text: progress } };
+          yield { type: "content_block_stop", index: offset - 1 };
+        }
         messages.push({ role: "user", content: resultContent });
         if (runs.every((run) => run.blocks.length === 0)) {
           failedRounds += 1;
@@ -40497,7 +40529,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.11.0";
+        PLUGIN_VERSION = "1.11.1";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
