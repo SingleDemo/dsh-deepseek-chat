@@ -1857,7 +1857,38 @@ window.__ModuleLoader__.load({
         );
         const contentType = plain.headers.get("Content-Type") ?? "";
         if (contentType.includes("text/event-stream") && plain.body) {
-          yield* readEventStream(plain, signal);
+          let produced = false;
+          try {
+            for await (const event of readEventStream(plain, signal)) {
+              produced = true;
+              yield event;
+            }
+            return;
+          } catch (error) {
+            if (signal.aborted || produced) throw error;
+          }
+          const fallback = await withRetry(
+            () => authedRequest(`${apiBaseUrl()}/messages`, {
+              method: "POST",
+              headers: {
+                ...anthropicHeaders(apiKey, hasFile(body)),
+                "Content-Type": "application/json",
+                Accept: "application/json"
+              },
+              body: JSON.stringify({ ...body, messages, stream: false }),
+              signal
+            }),
+            signal
+          );
+          let payload2;
+          try {
+            payload2 = await fallback.json();
+          } catch {
+            throw new ApiError("protocol", `${new URL(`${apiBaseUrl()}/messages`).host} \xB7 \u8FD4\u56DE\u7684\u5185\u5BB9\u65E0\u6CD5\u89E3\u6790`);
+          }
+          for (const event of synthesizeEvents(payload2)) {
+            yield event;
+          }
           return;
         }
         let payload;
@@ -40333,7 +40364,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.6.0";
+        PLUGIN_VERSION = "1.6.1";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");

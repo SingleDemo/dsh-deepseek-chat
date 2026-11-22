@@ -454,7 +454,40 @@ export async function* streamMessage(
     // 支持流式的中转站按事件逐块展示（含思考过程）；只回 JSON 的自动降级。
     const contentType = plain.headers.get('Content-Type') ?? ''
     if (contentType.includes('text/event-stream') && plain.body) {
-      yield* readEventStream(plain, signal)
+      // 中转站的 SSE 偶尔会在中途断开：还没产出任何事件时改成一次性请求再取一次。
+      let produced = false
+      try {
+        for await (const event of readEventStream(plain, signal)) {
+          produced = true
+          yield event
+        }
+        return
+      } catch (error) {
+        if (signal.aborted || produced) throw error
+      }
+      const fallback = await withRetry(
+        () =>
+          authedRequest(`${apiBaseUrl()}/messages`, {
+            method: 'POST',
+            headers: {
+              ...anthropicHeaders(apiKey, hasFile(body)),
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+            body: JSON.stringify({ ...body, messages, stream: false }),
+            signal,
+          }),
+        signal
+      )
+      let payload: unknown
+      try {
+        payload = await fallback.json()
+      } catch {
+        throw new ApiError('protocol', `${new URL(`${apiBaseUrl()}/messages`).host} · 返回的内容无法解析`)
+      }
+      for (const event of synthesizeEvents(payload)) {
+        yield event
+      }
       return
     }
     let payload: unknown
