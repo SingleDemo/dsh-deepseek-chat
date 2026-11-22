@@ -209,6 +209,7 @@ export const en = {
   modelNoMatch: 'No matching model',
   settingsModelPlaceholder: 'Click to pick a model or type an id',
   settingsModelHint: 'A non-DeepSeek model handles plain chat only; web search and link reading run on DeepSeek',
+  modelSearchOverride: 'Smart search is on, so this turn uses a DeepSeek model; turn it off to use the selected one',
   settingsVersion: 'Version',
   versionCheck: 'Check for updates',
   versionChecking: 'Checking…',

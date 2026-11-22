@@ -61,8 +61,10 @@ const resolveRequestModel = (
   }
   return { model, extended: false, delegated: false }
 }
-/** 所有生成请求统一携带的助手身份说明 */
+/** DeepSeek 模型的助手身份说明 */
 const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
+/** 其它模型（中转站/自建）不要冒充 DeepSeek，用中性身份。 */
+const NEUTRAL_SYSTEM_PROMPT = 'You are a helpful assistant.'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
 const SESSION_CACHE_LIMIT = 5
 /** 安全审核固定开启，所有请求都走扩展模式 */
@@ -1092,7 +1094,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           requestKey,
           {
             model: resolved.model,
-            system: SYSTEM_PROMPT,
+            system: isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT,
             messages,
             // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
             ...(resolved.extended

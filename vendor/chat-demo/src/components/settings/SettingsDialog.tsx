@@ -109,8 +109,6 @@ const SettingsContent = () => {
               <LocaleSetting />
               <TtsVoiceSetting />
               <ThinkingEffortSetting />
-              <ApiBaseUrlSetting />
-              <ChatApiKeySetting />
               <LocationSetting />
               <VersionSetting />
             </>
@@ -118,6 +116,8 @@ const SettingsContent = () => {
             <>
               <AuthModeSetting />
               <ApiKeyField editor={apiKeyEditor} />
+              <ApiBaseUrlSetting />
+              <ChatApiKeySetting />
               <ModelSetting />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
@@ -430,6 +430,7 @@ const ModelSetting = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
   const [query, setQuery] = useState('')
+  const searchOn = useSettings((state) => state.search)
   const wrapRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -488,7 +489,13 @@ const ModelSetting = () => {
   return (
     <SettingCell
       label={t('settingsModel')}
-      description={error ? t('modelFetchFailed') : t('settingsModelHint')}
+      description={
+        error
+          ? t('modelFetchFailed')
+          : searchOn && !/^deepseek/i.test(model)
+            ? t('modelSearchOverride')
+            : t('settingsModelHint')
+      }
       status={null}
       action={
         <div className={styles.modelRow} ref={wrapRef}>

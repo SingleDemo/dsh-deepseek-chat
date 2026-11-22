@@ -1112,6 +1112,7 @@ window.__ModuleLoader__.load({
           modelNoMatch: "No matching model",
           settingsModelPlaceholder: "Click to pick a model or type an id",
           settingsModelHint: "A non-DeepSeek model handles plain chat only; web search and link reading run on DeepSeek",
+          modelSearchOverride: "Smart search is on, so this turn uses a DeepSeek model; turn it off to use the selected one",
           settingsVersion: "Version",
           versionCheck: "Check for updates",
           versionChecking: "Checking\u2026",
@@ -1325,6 +1326,7 @@ window.__ModuleLoader__.load({
           modelNoMatch: "\u6CA1\u6709\u5339\u914D\u7684\u6A21\u578B",
           settingsModelPlaceholder: "\u70B9\u51FB\u9009\u62E9\u6216\u76F4\u63A5\u8F93\u5165\u6A21\u578B ID",
           settingsModelHint: "\u975E DeepSeek \u6A21\u578B\u53EA\u7528\u4E8E\u666E\u901A\u5BF9\u8BDD\uFF1B\u8054\u7F51\u641C\u7D22\u4E0E\u8BFB\u94FE\u63A5\u7531 DeepSeek \u6267\u884C",
+          modelSearchOverride: "\u667A\u80FD\u641C\u7D22\u5F00\u7740\uFF0C\u8FD9\u4E00\u8F6E\u4F1A\u6539\u7528 DeepSeek \u6A21\u578B\uFF1B\u5173\u6389\u667A\u80FD\u641C\u7D22\u624D\u4F1A\u7528\u5F53\u524D\u6A21\u578B",
           settingsVersion: "\u7248\u672C",
           versionCheck: "\u68C0\u67E5\u66F4\u65B0",
           versionChecking: "\u6B63\u5728\u68C0\u67E5\u2026",
@@ -4255,7 +4257,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/chat/store.ts
-    var MODEL, TOOL_MODEL, isDeepSeekModel, resolveRequestModel, SYSTEM_PROMPT, SESSION_CACHE_LIMIT, SAFETY_CHECK, FILE_RETRY_LIMIT, FILE_RETRY_BASE_DELAY, serverTools, titleRequests, useChatStore, get, set, sortSessions, getSession, getStreamController, sameSummary, sessionAccess, unsavedSessions, pendingFiles, deletingSessions, deletionTasks, streamFlushes, accessSequence, historyEpoch, initTask, sessionLoads, touchSession, trimSessionCache, updateSession, updateReply, persist, retrySaveSessions, bindChatPersistence, createReply, settleInterrupted, initChat, ensureSessionLoaded, waitForIdle, replaceHistory, mergeHistory, newChat, selectSession, renameSession2, removeSession, removeSessionData, stopReply, sendMessage, regenerateReply, editMessage, selectMessageVersion, continueReply, retryUpload, saveServerIds, ensureServerId, refreshRequest, prepareFiles, collectServerFileIds, reuploadInvalidatedFiles, waitForRetry, streamReply;
+    var MODEL, TOOL_MODEL, isDeepSeekModel, resolveRequestModel, SYSTEM_PROMPT, NEUTRAL_SYSTEM_PROMPT, SESSION_CACHE_LIMIT, SAFETY_CHECK, FILE_RETRY_LIMIT, FILE_RETRY_BASE_DELAY, serverTools, titleRequests, useChatStore, get, set, sortSessions, getSession, getStreamController, sameSummary, sessionAccess, unsavedSessions, pendingFiles, deletingSessions, deletionTasks, streamFlushes, accessSequence, historyEpoch, initTask, sessionLoads, touchSession, trimSessionCache, updateSession, updateReply, persist, retrySaveSessions, bindChatPersistence, createReply, settleInterrupted, initChat, ensureSessionLoaded, waitForIdle, replaceHistory, mergeHistory, newChat, selectSession, renameSession2, removeSession, removeSessionData, stopReply, sendMessage, regenerateReply, editMessage, selectMessageVersion, continueReply, retryUpload, saveServerIds, ensureServerId, refreshRequest, prepareFiles, collectServerFileIds, reuploadInvalidatedFiles, waitForRetry, streamReply;
     var init_store = __esm({
       "vendor/chat-demo/src/services/chat/store.ts"() {
         init_react_shim();
@@ -4287,6 +4289,7 @@ window.__ModuleLoader__.load({
           return { model, extended: false, delegated: false };
         };
         SYSTEM_PROMPT = "\u8BE5\u52A9\u624B\u4E3ADeepSeek\uFF0C\u7531\u6DF1\u5EA6\u6C42\u7D22\u516C\u53F8\u521B\u9020\u3002";
+        NEUTRAL_SYSTEM_PROMPT = "You are a helpful assistant.";
         SESSION_CACHE_LIMIT = 5;
         SAFETY_CHECK = { level: "high" };
         FILE_RETRY_LIMIT = 2;
@@ -5131,7 +5134,7 @@ window.__ModuleLoader__.load({
                   requestKey,
                   {
                     model: resolved.model,
-                    system: SYSTEM_PROMPT,
+                    system: isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT,
                     messages,
                     // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
                     ...resolved.extended ? {
@@ -39997,7 +40000,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.4.2";
+        PLUGIN_VERSION = "1.4.3";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40143,7 +40146,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t("deleteAllSessions"),
@@ -40428,6 +40431,7 @@ window.__ModuleLoader__.load({
           const [loading, setLoading] = (0, import_react34.useState)(false);
           const [error, setError] = (0, import_react34.useState)(false);
           const [query3, setQuery] = (0, import_react34.useState)("");
+          const searchOn = useSettings2((state) => state.search);
           const wrapRef = (0, import_react34.useRef)(null);
           const searchRef = (0, import_react34.useRef)(null);
           (0, import_react34.useEffect)(() => setDraft(model), [model]);
@@ -40476,7 +40480,7 @@ window.__ModuleLoader__.load({
             SettingCell,
             {
               label: t("settingsModel"),
-              description: error ? t("modelFetchFailed") : t("settingsModelHint"),
+              description: error ? t("modelFetchFailed") : searchOn && !/^deepseek/i.test(model) ? t("modelSearchOverride") : t("settingsModelHint"),
               status: null,
               action: /* @__PURE__ */ React.createElement("div", { className: Settings_default.modelRow, ref: wrapRef }, /* @__PURE__ */ React.createElement("div", { className: Settings_default.modelField }, /* @__PURE__ */ React.createElement(
                 "input",

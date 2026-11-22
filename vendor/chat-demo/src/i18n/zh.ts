@@ -201,6 +201,7 @@ export const zh = {
   modelNoMatch: '没有匹配的模型',
   settingsModelPlaceholder: '点击选择或直接输入模型 ID',
   settingsModelHint: '非 DeepSeek 模型只用于普通对话；联网搜索与读链接由 DeepSeek 执行',
+  modelSearchOverride: '智能搜索开着，这一轮会改用 DeepSeek 模型；关掉智能搜索才会用当前模型',
   settingsVersion: '版本',
   versionCheck: '检查更新',
   versionChecking: '正在检查…',
