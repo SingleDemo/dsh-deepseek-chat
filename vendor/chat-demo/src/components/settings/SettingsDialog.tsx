@@ -29,6 +29,7 @@ import {
   setThinkingEffort,
   setAuthMode,
   setModel,
+  setChatApiKey,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -109,6 +110,7 @@ const SettingsContent = () => {
               <TtsVoiceSetting />
               <ThinkingEffortSetting />
               <ApiBaseUrlSetting />
+              <ChatApiKeySetting />
               <LocationSetting />
               <VersionSetting />
             </>
@@ -322,6 +324,40 @@ const ThinkingEffortSetting = () => {
             { value: 'max', label: t('settingsThinkingEffortMax') },
           ]}
           onChange={setThinkingEffort}
+        />
+      }
+    />
+  )
+}
+
+/** 插件额外能力：对话接口单独的 Key（留空则用上面的官方凭据） */
+const ChatApiKeySetting = () => {
+  const t = useTranslate()
+  const chatApiKey = useSettings((state) => state.chatApiKey)
+  const [draft, setDraft] = useState(chatApiKey ?? '')
+  useEffect(() => setDraft(chatApiKey ?? ''), [chatApiKey])
+  const commit = () => setChatApiKey(draft.trim() || null)
+  return (
+    <SettingCell
+      label={t('settingsChatApiKey')}
+      description={t('settingsChatApiKeyHint')}
+      status={null}
+      action={
+        <input
+          className={styles.apiKeyInput}
+          type="password"
+          value={draft}
+          placeholder={t('settingsChatApiKeyPlaceholder')}
+          autoComplete="new-password"
+          spellCheck={false}
+          autoCapitalize="off"
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              commit()
+            }
+          }}
         />
       }
     />
@@ -573,7 +609,7 @@ const AuthModeSetting = () => {
   return (
     <SettingCell
       label={t('settingsAuthMode')}
-      description={statusText}
+      description={statusText + ' · ' + t('settingsAuthModeHint')}
       status={null}
       action={
         <Select

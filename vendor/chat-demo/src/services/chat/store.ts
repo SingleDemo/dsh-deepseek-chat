@@ -1078,11 +1078,18 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           initial.thinking ?? false,
           latestReminder
         )
-        const requestedModel = initial.model ?? useSettings.getState().model ?? MODEL
+        const settings = useSettings.getState()
+        const requestedModel = initial.model ?? settings.model ?? MODEL
         const searchEnabled = initial.search ?? false
-        const resolved = resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint())
+        // 配了独立的对话接口时，普通对话走它；搜索/读链接那一轮仍走 DeepSeek 官方。
+        const customChat = Boolean((settings.apiBaseUrl ?? '').trim() || (settings.chatApiKey ?? '').trim())
+        const useOfficial = customChat && searchEnabled
+        const resolved = useOfficial
+          ? { model: TOOL_MODEL, extended: true, delegated: true }
+          : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat)
+        const requestKey = useOfficial ? (settings.apiKey ?? '') : (settings.chatApiKey || settings.apiKey || '')
         const events = streamMessage(
-          useSettings.getState().apiKey ?? '',
+          requestKey,
           {
             model: resolved.model,
             system: SYSTEM_PROMPT,
@@ -1104,7 +1111,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
               }),
             ...(titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}),
           },
-          controller.signal
+          controller.signal,
+          useOfficial ? 'official' : 'chat'
         )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {

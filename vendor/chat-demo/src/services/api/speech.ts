@@ -1,4 +1,4 @@
-import { ApiError, API_ORIGIN, request } from './client.js'
+import { ApiError, API_ORIGIN, officialEndpoint, request } from './client.js'
 
 /**
  * 语音接口：
@@ -21,9 +21,11 @@ export const transcribe = async (
 ): Promise<string> => {
   const form = new FormData()
   form.append('file', audio, 'recording.wav')
+  // 朗读与语音识别始终使用 DeepSeek 官方凭据（账号登录或官方 Key）。
+  const official = await officialEndpoint()
   const response = await request(`${TOOLS_BASE_URL}/asr`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: { authorization: `Bearer ${apiKey}`, ...official.headers },
     body: form,
     signal,
   })
@@ -52,9 +54,10 @@ export const synthesize = async (
   voice: TtsVoice,
   signal: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> => {
+  const official = await officialEndpoint()
   const response = await request(`${TOOLS_BASE_URL}/tts`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...official.headers },
     body: JSON.stringify({ text, voice_id: voice, format: 'pcm', filter_markdown: true }),
     signal,
   })

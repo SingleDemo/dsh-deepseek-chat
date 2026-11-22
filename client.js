@@ -774,7 +774,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/settings.ts
-    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setModel;
+    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setChatApiKey, setModel;
     var init_settings = __esm({
       "vendor/chat-demo/src/services/settings.ts"() {
         init_react_shim();
@@ -792,7 +792,8 @@ window.__ModuleLoader__.load({
           apiBaseUrl: "chat-demo:api-base-url",
           thinkingEffort: "chat-demo:thinking-effort",
           authMode: "chat-demo:auth-mode",
-          model: "chat-demo:model"
+          model: "chat-demo:model",
+          chatApiKey: "chat-demo:chat-api-key"
         };
         read = (key) => {
           try {
@@ -847,7 +848,8 @@ window.__ModuleLoader__.load({
           apiBaseUrl: read(KEYS.apiBaseUrl) || null,
           thinkingEffort: read(KEYS.thinkingEffort) === "low" || read(KEYS.thinkingEffort) === "max" ? read(KEYS.thinkingEffort) : "high",
           authMode: read(KEYS.authMode) === "key" ? "key" : "account",
-          model: read(KEYS.model) || "deepseek-flash"
+          model: read(KEYS.model) || "deepseek-flash",
+          chatApiKey: read(KEYS.chatApiKey) || null
         }));
         setLocale = (locale) => {
           write(KEYS.locale, locale);
@@ -893,6 +895,11 @@ window.__ModuleLoader__.load({
         setAuthMode = (authMode) => {
           write(KEYS.authMode, authMode);
           useSettings2.setState({ authMode });
+        };
+        setChatApiKey = (chatApiKey) => {
+          const value = chatApiKey && chatApiKey.trim() ? chatApiKey.trim() : null;
+          write(KEYS.chatApiKey, value);
+          useSettings2.setState({ chatApiKey: value });
         };
         setModel = (model) => {
           const value = model.trim();
@@ -1082,8 +1089,12 @@ window.__ModuleLoader__.load({
           settingsThinkingEffortLow: "Low",
           settingsThinkingEffortHigh: "High",
           settingsThinkingEffortMax: "Max",
-          settingsApiBaseUrl: "API base URL",
-          settingsApiBaseUrlHint: "Leave empty for DeepSeek; a relay or self-hosted origin gets /v1 automatically, or paste through /v1",
+          settingsApiBaseUrl: "Chat endpoint",
+          settingsApiBaseUrlHint: "Used for plain chat; leave empty for DeepSeek, or paste a relay origin (its /v1 is added)",
+          settingsChatApiKey: "Chat endpoint key",
+          settingsChatApiKeyHint: "Key for the relay or self-hosted chat endpoint; empty reuses the DeepSeek credential above",
+          settingsChatApiKeyPlaceholder: "Empty reuses the official credential",
+          settingsAuthModeHint: "powers web search, link reading, read-aloud and speech input",
           settingsApiBaseUrlPlaceholder: "Leave empty to use the default",
           settingsAuthMode: "Sign-in method",
           authModeAccount: "DeepSeek account (recommended)",
@@ -1289,8 +1300,12 @@ window.__ModuleLoader__.load({
           settingsThinkingEffortLow: "\u4F4E",
           settingsThinkingEffortHigh: "\u9AD8",
           settingsThinkingEffortMax: "\u6700\u9AD8",
-          settingsApiBaseUrl: "API \u5730\u5740",
-          settingsApiBaseUrlHint: "\u5B98\u65B9\u7559\u7A7A\u5373\u53EF\uFF1B\u4E2D\u8F6C\u7AD9\u6216\u81EA\u5EFA\u586B origin\uFF08\u81EA\u52A8\u7528 /v1\uFF09\uFF0C\u4E5F\u53EF\u76F4\u63A5\u586B\u5230 /v1",
+          settingsApiBaseUrl: "\u5BF9\u8BDD\u63A5\u53E3\u5730\u5740",
+          settingsApiBaseUrlHint: "\u666E\u901A\u5BF9\u8BDD\u7528\uFF1B\u7559\u7A7A\u8D70\u5B98\u65B9 DeepSeek\uFF0C\u4E2D\u8F6C\u7AD9\u586B origin \u5373\u53EF\uFF08\u81EA\u52A8\u8865 /v1\uFF09",
+          settingsChatApiKey: "\u5BF9\u8BDD\u63A5\u53E3 Key",
+          settingsChatApiKeyHint: "\u4E2D\u8F6C\u7AD9\u6216\u81EA\u5EFA\u63A5\u53E3\u7684 Key\uFF1B\u7559\u7A7A\u5219\u590D\u7528\u4E0A\u9762\u7684 DeepSeek \u51ED\u636E",
+          settingsChatApiKeyPlaceholder: "\u7559\u7A7A\u590D\u7528\u5B98\u65B9\u51ED\u636E",
+          settingsAuthModeHint: "\u7528\u4E8E\u8054\u7F51\u641C\u7D22\u3001\u8BFB\u94FE\u63A5\u3001\u6717\u8BFB\u3001\u8BED\u97F3\u8BC6\u522B",
           settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740",
           settingsAuthMode: "\u767B\u5F55\u65B9\u5F0F",
           authModeAccount: "DeepSeek \u8D26\u53F7\uFF08\u63A8\u8350\uFF09",
@@ -1789,7 +1804,22 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/api/client.ts
-    async function* streamMessage(apiKey, body, signal) {
+    async function* streamMessage(apiKey, body, signal, mode = "chat") {
+      if (mode === "official") {
+        const endpoint = await officialEndpoint();
+        const response2 = await request(`${endpoint.base}/messages`, {
+          method: "POST",
+          headers: {
+            ...endpoint.headers,
+            "content-type": "application/json",
+            accept: "text/event-stream"
+          },
+          body: JSON.stringify({ ...body, stream: true }),
+          signal
+        });
+        yield* readEventStream(response2, signal);
+        return;
+      }
       if (!usesOfficialEndpoint()) {
         const messages = body.messages.filter((message2) => message2.role !== "latest_reminder");
         const plain = await authedRequest(`${apiBaseUrl()}/messages`, {
@@ -1817,6 +1847,9 @@ window.__ModuleLoader__.load({
         body: JSON.stringify({ ...body, stream: true }),
         signal
       });
+      yield* readEventStream(response, signal);
+    }
+    async function* readEventStream(response, signal) {
       const contentType = response.headers.get("Content-Type") ?? "";
       if (!response.body || !contentType.includes("text/event-stream")) {
         throw await readErrorResponse(response, "protocol", "");
@@ -1847,7 +1880,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -1867,6 +1900,19 @@ window.__ModuleLoader__.load({
           return /^https?:\/\/api\.deepseek\.com$/i.test(trimmed) ? `${trimmed}/anthropic/v1` : `${trimmed}/v1`;
         };
         apiBaseUrl = () => resolveBase(useSettings2.getState().apiBaseUrl);
+        officialEndpoint = async () => {
+          if (usesAccountAuth()) {
+            const account = await accountAuthHeaders(OFFICIAL_ORIGIN);
+            if ("x-dsh-auth-token" in account) {
+              return { base: `${OFFICIAL_ORIGIN}/anthropic/v1`, headers: account };
+            }
+          }
+          const key = useSettings2.getState().apiKey || "";
+          return {
+            base: `${OFFICIAL_ORIGIN}/anthropic/v1`,
+            headers: key ? { authorization: `Bearer ${key}` } : {}
+          };
+        };
         modelsUrl = () => {
           const base = apiBaseUrl();
           return /\/anthropic\/v1$/.test(base) ? `${base.replace(/\/anthropic\/v1$/, "")}/models` : `${base}/models`;
@@ -5068,11 +5114,15 @@ window.__ModuleLoader__.load({
                   initial.thinking ?? false,
                   latestReminder
                 );
-                const requestedModel = initial.model ?? useSettings2.getState().model ?? MODEL;
+                const settings = useSettings2.getState();
+                const requestedModel = initial.model ?? settings.model ?? MODEL;
                 const searchEnabled = initial.search ?? false;
-                const resolved = resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint());
+                const customChat = Boolean((settings.apiBaseUrl ?? "").trim() || (settings.chatApiKey ?? "").trim());
+                const useOfficial = customChat && searchEnabled;
+                const resolved = useOfficial ? { model: TOOL_MODEL, extended: true, delegated: true } : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat);
+                const requestKey = useOfficial ? settings.apiKey ?? "" : settings.chatApiKey || settings.apiKey || "";
                 const events = streamMessage(
-                  useSettings2.getState().apiKey ?? "",
+                  requestKey,
                   {
                     model: resolved.model,
                     system: SYSTEM_PROMPT,
@@ -5090,7 +5140,8 @@ window.__ModuleLoader__.load({
                     },
                     ...titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}
                   },
-                  controller.signal
+                  controller.signal,
+                  useOfficial ? "official" : "chat"
                 );
                 const blockIndexes = /* @__PURE__ */ new Map();
                 for await (const event of events) {
@@ -6124,9 +6175,10 @@ window.__ModuleLoader__.load({
         transcribe = async (apiKey, audio, signal) => {
           const form = new FormData();
           form.append("file", audio, "recording.wav");
+          const official = await officialEndpoint();
           const response = await request(`${TOOLS_BASE_URL}/asr`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${apiKey}` },
+            headers: { authorization: `Bearer ${apiKey}`, ...official.headers },
             body: form,
             signal
           });
@@ -6143,9 +6195,10 @@ window.__ModuleLoader__.load({
           return body.text;
         };
         synthesize = async (apiKey, text9, voice, signal) => {
+          const official = await officialEndpoint();
           const response = await request(`${TOOLS_BASE_URL}/tts`, {
             method: "POST",
-            headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", ...official.headers },
             body: JSON.stringify({ text: text9, voice_id: voice, format: "pcm", filter_markdown: true }),
             signal
           });
@@ -39936,7 +39989,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.3.0";
+        PLUGIN_VERSION = "1.4.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40011,7 +40064,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/components/settings/SettingsDialog.tsx
-    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
+    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ChatApiKeySetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
     var init_SettingsDialog = __esm({
       "vendor/chat-demo/src/components/settings/SettingsDialog.tsx"() {
         init_react_shim();
@@ -40082,7 +40135,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t("deleteAllSessions"),
@@ -40263,6 +40316,40 @@ window.__ModuleLoader__.load({
                     { value: "max", label: t("settingsThinkingEffortMax") }
                   ],
                   onChange: setThinkingEffort
+                }
+              )
+            }
+          );
+        };
+        ChatApiKeySetting = () => {
+          const t = useTranslate();
+          const chatApiKey = useSettings2((state) => state.chatApiKey);
+          const [draft, setDraft] = (0, import_react34.useState)(chatApiKey ?? "");
+          (0, import_react34.useEffect)(() => setDraft(chatApiKey ?? ""), [chatApiKey]);
+          const commit = () => setChatApiKey(draft.trim() || null);
+          return /* @__PURE__ */ React.createElement(
+            SettingCell,
+            {
+              label: t("settingsChatApiKey"),
+              description: t("settingsChatApiKeyHint"),
+              status: null,
+              action: /* @__PURE__ */ React.createElement(
+                "input",
+                {
+                  className: Settings_default.apiKeyInput,
+                  type: "password",
+                  value: draft,
+                  placeholder: t("settingsChatApiKeyPlaceholder"),
+                  autoComplete: "new-password",
+                  spellCheck: false,
+                  autoCapitalize: "off",
+                  onChange: (event) => setDraft(event.target.value),
+                  onBlur: commit,
+                  onKeyDown: (event) => {
+                    if (event.key === "Enter") {
+                      commit();
+                    }
+                  }
                 }
               )
             }
@@ -40483,7 +40570,7 @@ window.__ModuleLoader__.load({
             SettingCell,
             {
               label: t("settingsAuthMode"),
-              description: statusText,
+              description: statusText + " \xB7 " + t("settingsAuthModeHint"),
               status: null,
               action: /* @__PURE__ */ React.createElement(
                 Select,

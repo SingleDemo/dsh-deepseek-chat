@@ -32,6 +32,30 @@ const resolveBase = (value: string | null): string => {
 
 const apiBaseUrl = () => resolveBase(useSettings.getState().apiBaseUrl)
 
+/**
+ * 对话请求的凭据：对话接口单独的 Key 优先，否则用官方凭据。
+ * 自定义接口一律用 Bearer（它们的 CORS 只放行 Authorization）。
+ */
+const chatApiKey = () => {
+  const settings = useSettings.getState()
+  return settings.chatApiKey || settings.apiKey || ''
+}
+
+/** 官方端点与凭据：账号登录优先，其次手填的官方 Key。 */
+export const officialEndpoint = async (): Promise<{ base: string; headers: Record<string, string> }> => {
+  if (usesAccountAuth()) {
+    const account = await accountAuthHeaders(OFFICIAL_ORIGIN)
+    if ('x-dsh-auth-token' in account) {
+      return { base: `${OFFICIAL_ORIGIN}/anthropic/v1`, headers: account }
+    }
+  }
+  const key = useSettings.getState().apiKey || ''
+  return {
+    base: `${OFFICIAL_ORIGIN}/anthropic/v1`,
+    headers: key ? { authorization: `Bearer ${key}` } : {},
+  }
+}
+
 /** 模型列表端点：官方是 {origin}/models，兼容端点是 {base}/models。 */
 const modelsUrl = () => {
   const base = apiBaseUrl()
@@ -284,8 +308,25 @@ const synthesizeEvents = (payload: unknown): MessageStreamEvent[] => {
 export async function* streamMessage(
   apiKey: string,
   body: CreateMessageRequest,
-  signal: AbortSignal
+  signal: AbortSignal,
+  mode: 'chat' | 'official' = 'chat'
 ): AsyncGenerator<MessageStreamEvent> {
+  if (mode === 'official') {
+    // 搜索、读链接由 DeepSeek 官方执行，对话接口的自定义地址不参与。
+    const endpoint = await officialEndpoint()
+    const response = await request(`${endpoint.base}/messages`, {
+      method: 'POST',
+      headers: {
+        ...endpoint.headers,
+        'content-type': 'application/json',
+        accept: 'text/event-stream',
+      },
+      body: JSON.stringify({ ...body, stream: true }),
+      signal,
+    })
+    yield* readEventStream(response, signal)
+    return
+  }
   if (!usesOfficialEndpoint()) {
     // 兼容端点不认识 DeepSeek 的扩展角色，剥掉后按标准 Messages 发送。
     const messages = body.messages.filter((message) => message.role !== 'latest_reminder')
@@ -314,6 +355,14 @@ export async function* streamMessage(
     body: JSON.stringify({ ...body, stream: true }),
     signal,
   })
+  yield* readEventStream(response, signal)
+}
+
+/** 把一个 Anthropic SSE 响应逐事件读出；两处调用共用同一段协议处理。 */
+async function* readEventStream(
+  response: Response,
+  signal: AbortSignal
+): AsyncGenerator<MessageStreamEvent> {
   const contentType = response.headers.get('Content-Type') ?? ''
   if (!response.body || !contentType.includes('text/event-stream')) {
     throw await readErrorResponse(response, 'protocol', '')
