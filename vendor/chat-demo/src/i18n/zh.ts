@@ -179,6 +179,7 @@ export const zh = {
   settingsThinkingEffortHigh: '高',
   settingsThinkingEffortMax: '最高',
   settingsApiBaseUrl: 'API 地址',
+  settingsApiBaseUrlHint: '官方留空即可；中转站或自建填 origin（自动用 /v1），也可直接填到 /v1',
   settingsApiBaseUrlPlaceholder: '留空使用默认地址',
   settingsAuthMode: '登录方式',
   authModeAccount: 'DeepSeek 账号（推荐）',

@@ -338,6 +338,7 @@ const ApiBaseUrlSetting = () => {
   return (
     <SettingCell
       label={t('settingsApiBaseUrl')}
+      description={t('settingsApiBaseUrlHint')}
       status={null}
       action={
         <input

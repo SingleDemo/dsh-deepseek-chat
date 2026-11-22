@@ -113,6 +113,25 @@ rename, delete, and the bulk actions in Settings.
 
 ![A reply with an inline formula, a block formula, and a Mermaid flow chart with its Chart / Code switch](docs/screenshots/math.png)
 
+## Relays and compatible endpoints
+
+**设置 → 数据管理 → API 地址** accepts DeepSeek itself, an Anthropic-compatible relay,
+or a self-hosted gateway:
+
+- Leave it empty for DeepSeek (`https://api.deepseek.com/anthropic/v1`).
+- Paste a relay origin such as `https://api.tu-zi.com`: the plugin appends `/v1`
+  automatically (Anthropic-compatible path) and authenticates with
+  `Authorization: Bearer`, which is what those gateways expose to browsers.
+- Paste through `/v1` explicitly if the gateway is mounted elsewhere.
+
+On a compatible endpoint the plugin sends one plain Messages request
+(`stream: false`, `max_tokens`, thinking disabled), strips DeepSeek-only fields
+such as the `latest_reminder` role, and renders the answer when it arrives, so
+chat works without SSE differences between gateways. DeepSeek-only abilities —
+web search, link reading, thinking timeline, the thinking-effort picker — stay on
+the official endpoint; on a relay they are not sent. Model ids come from that
+gateway's `/v1/models` list, so pick or type one it actually serves.
+
 ## Model selection
 
 **设置 → 通用设置 → 模型** lists what `GET /models` reports for your credential and

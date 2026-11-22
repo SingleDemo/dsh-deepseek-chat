@@ -13,11 +13,33 @@ import type {
 
 /** 构建期 API 地址，默认 https://api.deepseek.com；本地开发支持开发服务器代理 */
 export const API_ORIGIN = __API_ORIGIN__
-/** 插件额外能力：设置里可以覆盖接口地址，改完立刻生效，无需重新构建 */
-const apiBaseUrl = () => {
-  const override = useSettings.getState().apiBaseUrl
-  return `${(override && override.trim() ? override.trim() : API_ORIGIN).replace(/\/+$/, '')}/anthropic/v1`
+/** 官方端点用 /anthropic/v1；自定义地址（中转站、自建）用标准的 /v1。 */
+const OFFICIAL_ORIGIN = 'https://api.deepseek.com'
+
+/**
+ * 插件额外能力：设置里可以覆盖接口地址，改完立刻生效，无需重新构建。
+ * 支持三种写法：官方 origin、任意 origin（自动补 /v1）、显式的 /v1 或 /anthropic/v1 前缀。
+ */
+const resolveBase = (value: string | null): string => {
+  const raw = (value && value.trim()) || ''
+  if (!raw) return `${API_ORIGIN}/anthropic/v1`
+  const trimmed = raw.replace(/\/+$/, '')
+  if (/\/anthropic\/v1$/.test(trimmed)) return trimmed
+  if (/\/v1$/.test(trimmed)) return trimmed
+  // DeepSeek 官方保持扩展端点；其他中转/自建按 Anthropic 兼容的标准路径。
+  return /^https?:\/\/api\.deepseek\.com$/i.test(trimmed) ? `${trimmed}/anthropic/v1` : `${trimmed}/v1`
 }
+
+const apiBaseUrl = () => resolveBase(useSettings.getState().apiBaseUrl)
+
+/** 模型列表端点：官方是 {origin}/models，兼容端点是 {base}/models。 */
+const modelsUrl = () => {
+  const base = apiBaseUrl()
+  return /\/anthropic\/v1$/.test(base) ? `${base.replace(/\/anthropic\/v1$/, '')}/models` : `${base}/models`
+}
+
+/** 是否指向 DeepSeek 官方端点（决定要不要带扩展字段）。 */
+export const usesOfficialEndpoint = () => apiBaseUrl().indexOf(OFFICIAL_ORIGIN + '/') === 0
 /** 引用 Files API 上传的图片、调用 Anthropic 兼容 Files API 时必须携带 */
 const FILES_BETA = 'files-api-2025-04-14'
 
@@ -96,12 +118,20 @@ const inferenceOrigin = (): string => {
   }
 }
 
-const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
-  // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-  ...(usesAccountAuth() ? {} : { 'x-api-key': apiKey }),
-  // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
-  ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
-})
+/**
+ * 插件改动：官方端点用 x-api-key；自定义端点（中转站/自建）经常只放行
+ * Authorization，且 CORS 预检只允许少数请求头，所以那边只发 Bearer。
+ */
+const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => {
+  if (!usesOfficialEndpoint()) {
+    return usesAccountAuth() ? {} : { authorization: `Bearer ${apiKey}` }
+  }
+  return {
+    ...(usesAccountAuth() ? {} : { 'x-api-key': apiKey }),
+    // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
+    ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
+  }
+}
 
 /**
  * 插件改动：账号登录时附加 x-dsh-auth-token；被拒（401）时刷新一次 token 再重试。
@@ -139,7 +169,7 @@ export type ModelInfo = {
 export const listModels = async (apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]> => {
   // 与 verifyApiKey 一致：账号登录用账号 token，手填 Key 用 Bearer。
   const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {}
-  const response = await request(`${API_ORIGIN}/models`, {
+  const response = await request(modelsUrl(), {
     method: 'GET',
     headers: 'x-dsh-auth-token' in account ? account : { Authorization: `Bearer ${apiKey}` },
     signal,
@@ -167,7 +197,7 @@ export const listModels = async (apiKey: string, signal?: AbortSignal): Promise<
  */
 export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promise<void> => {
   const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {}
-  await request(`${API_ORIGIN}/models`, {
+  await request(modelsUrl(), {
     method: 'GET',
     headers: 'x-dsh-auth-token' in account
       ? account
@@ -219,11 +249,61 @@ const hasFile = (body: CreateMessageRequest) =>
  * POST /anthropic/v1/messages（stream: true），逐个产出流式事件，收到 message_stop 时结束。
  * ping、保活注释与无法解析的内容不产出；中止请求时抛出 signal 的 AbortError。
  */
+/**
+ * 插件改动：自定义端点（中转站/自建）先走非流式请求，再把完整响应拆成事件。
+ * 不同实现的 SSE 事件流差异很大，非流式只有一种 JSON 形状，兼容性最好。
+ */
+const synthesizeEvents = (payload: unknown): MessageStreamEvent[] => {
+  const events: MessageStreamEvent[] = []
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+  const blocks = Array.isArray(record.content) ? record.content : []
+  let index = 0
+  for (const block of blocks) {
+    if (!block || typeof block !== 'object') continue
+    const item = block as Record<string, unknown>
+    if (item.type === 'text' && typeof item.text === 'string') {
+      events.push({ type: 'content_block_start', index, content_block: { type: 'text', text: '' } } as unknown as MessageStreamEvent)
+      events.push({ type: 'content_block_delta', index, delta: { type: 'text_delta', text: item.text } } as unknown as MessageStreamEvent)
+      events.push({ type: 'content_block_stop', index } as unknown as MessageStreamEvent)
+      index += 1
+      continue
+    }
+    if (item.type === 'thinking' && typeof item.thinking === 'string' && item.thinking) {
+      events.push({ type: 'content_block_start', index, content_block: { type: 'thinking', thinking: '' } } as unknown as MessageStreamEvent)
+      events.push({ type: 'content_block_delta', index, delta: { type: 'thinking_delta', thinking: item.thinking } } as unknown as MessageStreamEvent)
+      events.push({ type: 'content_block_stop', index } as unknown as MessageStreamEvent)
+      index += 1
+    }
+  }
+  const stopReason = typeof record.stop_reason === 'string' ? record.stop_reason : 'end_turn'
+  events.push({ type: 'message_delta', delta: { stop_reason: stopReason } } as unknown as MessageStreamEvent)
+  events.push({ type: 'message_stop' } as unknown as MessageStreamEvent)
+  return events
+}
+
 export async function* streamMessage(
   apiKey: string,
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
+  if (!usesOfficialEndpoint()) {
+    // 兼容端点不认识 DeepSeek 的扩展角色，剥掉后按标准 Messages 发送。
+    const messages = body.messages.filter((message) => message.role !== 'latest_reminder')
+    const plain = await authedRequest(`${apiBaseUrl()}/messages`, {
+      method: 'POST',
+      headers: {
+        ...anthropicHeaders(apiKey, hasFile(body)),
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ ...body, messages, stream: false }),
+      signal,
+    })
+    for (const event of synthesizeEvents(await plain.json())) {
+      yield event
+    }
+    return
+  }
   const response = await authedRequest(`${apiBaseUrl()}/messages`, {
     method: 'POST',
     headers: {

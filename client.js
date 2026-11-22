@@ -1083,6 +1083,7 @@ window.__ModuleLoader__.load({
           settingsThinkingEffortHigh: "High",
           settingsThinkingEffortMax: "Max",
           settingsApiBaseUrl: "API base URL",
+          settingsApiBaseUrlHint: "Leave empty for DeepSeek; a relay or self-hosted origin gets /v1 automatically, or paste through /v1",
           settingsApiBaseUrlPlaceholder: "Leave empty to use the default",
           settingsAuthMode: "Sign-in method",
           authModeAccount: "DeepSeek account (recommended)",
@@ -1289,6 +1290,7 @@ window.__ModuleLoader__.load({
           settingsThinkingEffortHigh: "\u9AD8",
           settingsThinkingEffortMax: "\u6700\u9AD8",
           settingsApiBaseUrl: "API \u5730\u5740",
+          settingsApiBaseUrlHint: "\u5B98\u65B9\u7559\u7A7A\u5373\u53EF\uFF1B\u4E2D\u8F6C\u7AD9\u6216\u81EA\u5EFA\u586B origin\uFF08\u81EA\u52A8\u7528 /v1\uFF09\uFF0C\u4E5F\u53EF\u76F4\u63A5\u586B\u5230 /v1",
           settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740",
           settingsAuthMode: "\u767B\u5F55\u65B9\u5F0F",
           authModeAccount: "DeepSeek \u8D26\u53F7\uFF08\u63A8\u8350\uFF09",
@@ -1788,6 +1790,23 @@ window.__ModuleLoader__.load({
     
     // vendor/chat-demo/src/services/api/client.ts
     async function* streamMessage(apiKey, body, signal) {
+      if (!usesOfficialEndpoint()) {
+        const messages = body.messages.filter((message2) => message2.role !== "latest_reminder");
+        const plain = await authedRequest(`${apiBaseUrl()}/messages`, {
+          method: "POST",
+          headers: {
+            ...anthropicHeaders(apiKey, hasFile(body)),
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify({ ...body, messages, stream: false }),
+          signal
+        });
+        for (const event of synthesizeEvents(await plain.json())) {
+          yield event;
+        }
+        return;
+      }
       const response = await authedRequest(`${apiBaseUrl()}/messages`, {
         method: "POST",
         headers: {
@@ -1828,7 +1847,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, apiBaseUrl, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -1838,10 +1857,21 @@ window.__ModuleLoader__.load({
         init_parseEvent();
         init_sse();
         API_ORIGIN = "https://api.deepseek.com";
-        apiBaseUrl = () => {
-          const override = useSettings2.getState().apiBaseUrl;
-          return `${(override && override.trim() ? override.trim() : API_ORIGIN).replace(/\/+$/, "")}/anthropic/v1`;
+        OFFICIAL_ORIGIN = "https://api.deepseek.com";
+        resolveBase = (value) => {
+          const raw = value && value.trim() || "";
+          if (!raw) return `${API_ORIGIN}/anthropic/v1`;
+          const trimmed = raw.replace(/\/+$/, "");
+          if (/\/anthropic\/v1$/.test(trimmed)) return trimmed;
+          if (/\/v1$/.test(trimmed)) return trimmed;
+          return /^https?:\/\/api\.deepseek\.com$/i.test(trimmed) ? `${trimmed}/anthropic/v1` : `${trimmed}/v1`;
         };
+        apiBaseUrl = () => resolveBase(useSettings2.getState().apiBaseUrl);
+        modelsUrl = () => {
+          const base = apiBaseUrl();
+          return /\/anthropic\/v1$/.test(base) ? `${base.replace(/\/anthropic\/v1$/, "")}/models` : `${base}/models`;
+        };
+        usesOfficialEndpoint = () => apiBaseUrl().indexOf(OFFICIAL_ORIGIN + "/") === 0;
         FILES_BETA = "files-api-2025-04-14";
         ApiError = class extends Error {
           constructor(kind, message2, status) {
@@ -1888,12 +1918,16 @@ window.__ModuleLoader__.load({
             return API_ORIGIN;
           }
         };
-        anthropicHeaders = (apiKey, beta) => ({
-          // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-          ...usesAccountAuth() ? {} : { "x-api-key": apiKey },
-          // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
-          ...beta ? { "anthropic-beta": FILES_BETA } : {}
-        });
+        anthropicHeaders = (apiKey, beta) => {
+          if (!usesOfficialEndpoint()) {
+            return usesAccountAuth() ? {} : { authorization: `Bearer ${apiKey}` };
+          }
+          return {
+            ...usesAccountAuth() ? {} : { "x-api-key": apiKey },
+            // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
+            ...beta ? { "anthropic-beta": FILES_BETA } : {}
+          };
+        };
         authedRequest = async (url, init) => {
           const origin = inferenceOrigin();
           const once = async () => request(url, {
@@ -1912,7 +1946,7 @@ window.__ModuleLoader__.load({
         };
         listModels = async (apiKey, signal) => {
           const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {};
-          const response = await request(`${API_ORIGIN}/models`, {
+          const response = await request(modelsUrl(), {
             method: "GET",
             headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${apiKey}` },
             signal
@@ -1935,7 +1969,7 @@ window.__ModuleLoader__.load({
         };
         verifyApiKey = async (apiKey, signal) => {
           const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {};
-          await request(`${API_ORIGIN}/models`, {
+          await request(modelsUrl(), {
             method: "GET",
             headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${apiKey}` },
             signal
@@ -1958,6 +1992,33 @@ window.__ModuleLoader__.load({
         hasFile = (body) => body.messages.some(
           (message2) => typeof message2.content !== "string" && message2.content.some((block) => block.type === "image" || block.type === "document")
         );
+        synthesizeEvents = (payload) => {
+          const events = [];
+          const record2 = payload && typeof payload === "object" ? payload : {};
+          const blocks = Array.isArray(record2.content) ? record2.content : [];
+          let index2 = 0;
+          for (const block of blocks) {
+            if (!block || typeof block !== "object") continue;
+            const item = block;
+            if (item.type === "text" && typeof item.text === "string") {
+              events.push({ type: "content_block_start", index: index2, content_block: { type: "text", text: "" } });
+              events.push({ type: "content_block_delta", index: index2, delta: { type: "text_delta", text: item.text } });
+              events.push({ type: "content_block_stop", index: index2 });
+              index2 += 1;
+              continue;
+            }
+            if (item.type === "thinking" && typeof item.thinking === "string" && item.thinking) {
+              events.push({ type: "content_block_start", index: index2, content_block: { type: "thinking", thinking: "" } });
+              events.push({ type: "content_block_delta", index: index2, delta: { type: "thinking_delta", thinking: item.thinking } });
+              events.push({ type: "content_block_stop", index: index2 });
+              index2 += 1;
+            }
+          }
+          const stopReason = typeof record2.stop_reason === "string" ? record2.stop_reason : "end_turn";
+          events.push({ type: "message_delta", delta: { stop_reason: stopReason } });
+          events.push({ type: "message_stop" });
+          return events;
+        };
       }
     });
     
@@ -4161,7 +4222,10 @@ window.__ModuleLoader__.load({
         MODEL = "deepseek-flash";
         TOOL_MODEL = "deepseek-flash";
         isDeepSeekModel = (id) => /^deepseek/i.test(id);
-        resolveRequestModel = (model, search2) => {
+        resolveRequestModel = (model, search2, official) => {
+          if (!official) {
+            return { model, extended: false, delegated: false };
+          }
           if (isDeepSeekModel(model)) {
             return { model, extended: true, delegated: false };
           }
@@ -4335,7 +4399,7 @@ window.__ModuleLoader__.load({
             id: createId(),
             role: "assistant",
             createdAt: Date.now(),
-            model: resolveRequestModel(preferred || MODEL, search2).model,
+            model: resolveRequestModel(preferred || MODEL, search2, usesOfficialEndpoint()).model,
             thinking,
             search: search2,
             prefix: true,
@@ -5006,20 +5070,24 @@ window.__ModuleLoader__.load({
                 );
                 const requestedModel = initial.model ?? useSettings2.getState().model ?? MODEL;
                 const searchEnabled = initial.search ?? false;
-                const resolved = resolveRequestModel(requestedModel, searchEnabled);
+                const resolved = resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint());
                 const events = streamMessage(
                   useSettings2.getState().apiKey ?? "",
                   {
                     model: resolved.model,
                     system: SYSTEM_PROMPT,
                     messages,
-                    // 扩展字段只发给 DeepSeek；自定义模型走最朴素的 Messages 请求。
+                    // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
                     ...resolved.extended ? {
                       thinking: { type: initial.thinking ? "enabled" : "disabled" },
                       safety_check: SAFETY_CHECK,
                       ...initial.thinking ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {},
                       tools: serverTools(searchEnabled)
-                    } : {},
+                    } : {
+                      // Anthropic 兼容端点：max_tokens 必填，显式关闭思考避免长时间等待。
+                      max_tokens: 2048,
+                      thinking: { type: "disabled" }
+                    },
                     ...titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}
                   },
                   controller.signal
@@ -39868,7 +39936,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.2.2";
+        PLUGIN_VERSION = "1.3.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40210,6 +40278,7 @@ window.__ModuleLoader__.load({
             SettingCell,
             {
               label: t("settingsApiBaseUrl"),
+              description: t("settingsApiBaseUrlHint"),
               status: null,
               action: /* @__PURE__ */ React.createElement(
                 "input",

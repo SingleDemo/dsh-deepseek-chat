@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
-import { ApiError, streamMessage } from '../api/client.js'
+import { ApiError, streamMessage, usesOfficialEndpoint } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
@@ -46,8 +46,13 @@ const isDeepSeekModel = (id: string) => /^deepseek/i.test(id)
  */
 const resolveRequestModel = (
   model: string,
-  search: boolean
+  search: boolean,
+  official: boolean
 ): { model: ChatModel; extended: boolean; delegated: boolean } => {
+  // 自定义接口（中转站 / 自建）不保证认识 DeepSeek 的扩展字段，只发最朴素的请求。
+  if (!official) {
+    return { model, extended: false, delegated: false }
+  }
   if (isDeepSeekModel(model)) {
     return { model, extended: true, delegated: false }
   }
@@ -282,7 +287,7 @@ const createReply = (): AssistantMessage => {
     id: createId(),
     role: 'assistant',
     createdAt: Date.now(),
-    model: resolveRequestModel(preferred || MODEL, search).model,
+    model: resolveRequestModel(preferred || MODEL, search, usesOfficialEndpoint()).model,
     thinking,
     search,
     prefix: true,
@@ -1075,14 +1080,14 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         )
         const requestedModel = initial.model ?? useSettings.getState().model ?? MODEL
         const searchEnabled = initial.search ?? false
-        const resolved = resolveRequestModel(requestedModel, searchEnabled)
+        const resolved = resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint())
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',
           {
             model: resolved.model,
             system: SYSTEM_PROMPT,
             messages,
-            // 扩展字段只发给 DeepSeek；自定义模型走最朴素的 Messages 请求。
+            // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
             ...(resolved.extended
               ? {
                 thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
@@ -1092,7 +1097,11 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
                   : {}),
                 tools: serverTools(searchEnabled),
               }
-              : {}),
+              : {
+                // Anthropic 兼容端点：max_tokens 必填，显式关闭思考避免长时间等待。
+                max_tokens: 2048,
+                thinking: { type: 'disabled' },
+              }),
             ...(titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}),
           },
           controller.signal

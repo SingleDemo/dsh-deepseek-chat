@@ -187,6 +187,7 @@ export const en = {
   settingsThinkingEffortHigh: 'High',
   settingsThinkingEffortMax: 'Max',
   settingsApiBaseUrl: 'API base URL',
+  settingsApiBaseUrlHint: 'Leave empty for DeepSeek; a relay or self-hosted origin gets /v1 automatically, or paste through /v1',
   settingsApiBaseUrlPlaceholder: 'Leave empty to use the default',
   settingsAuthMode: 'Sign-in method',
   authModeAccount: 'DeepSeek account (recommended)',
