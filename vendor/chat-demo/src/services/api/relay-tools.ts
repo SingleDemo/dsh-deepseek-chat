@@ -280,13 +280,17 @@ export async function* streamWithRelayTools(
     const buffered: MessageStreamEvent[] = []
     let stopReason: string | undefined
     let sawText = false
+    let currentRoundHadText = false
     let currentBlockKind = ''
     const roundBase = offset
     let roundBlocks = 0
     for await (const event of streamChatCompletion(requestBody, signal)) {
       if (event.type === 'content_block_start') {
         const block = (event as unknown as { content_block?: Record<string, unknown> }).content_block
-        if (block && block.type === 'text') sawText = true
+        if (block && block.type === 'text') {
+          sawText = true
+          currentRoundHadText = true
+        }
         if (block && block.type === 'tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
           calls.push({ id: block.id, name: block.name, input: (block.input as Record<string, unknown>) ?? {} })
         }
@@ -295,20 +299,15 @@ export async function* streamWithRelayTools(
         const delta = (event as unknown as { delta?: { stop_reason?: string } }).delta
         if (delta?.stop_reason) stopReason = delta.stop_reason
       }
-      if (offerTools) {
-        // 中间轮的思考/正文都不进回答区（与原版服务端工具一致），只保留工具步骤；
-        // 进度由工具块和「已获取 N 个网页」提示体现。
-        buffered.push(event)
-      } else {
-        yield offsetEvent(event, offset)
-      }
+      // 每一轮都实时下发：思考过程与中间正文都可视（与 pi 的 message_update 一致）。
+      yield event
     }
     offset = roundBase + roundBlocks
     if (!offerTools) {
-      if (!sawText && !signal.aborted) {
+      if (!sawText && !signal.aborted && !currentRoundHadText) {
         const notice = '模型这一轮没有生成正文，请重试；如果持续出现，建议先关闭深度思考。'
-        yield { type: 'content_block_start', index: offset++, content_block: { type: 'text', text: notice } } as unknown as MessageStreamEvent
-        yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
+        yield { type: 'content_block_start', index: 900, content_block: { type: 'text', text: notice } } as unknown as MessageStreamEvent
+        yield { type: 'content_block_stop', index: 900 } as unknown as MessageStreamEvent
       }
       return
     }
@@ -325,8 +324,9 @@ export async function* streamWithRelayTools(
     })
     // 1) 先下发调用块：界面立即出现「搜索 xxx / 阅读 xxx」的步骤。
     for (const plan of plans) {
-      yield { type: 'content_block_start', index: offset++, content_block: plan.block } as unknown as MessageStreamEvent
-      yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
+      const index = 800 + offset++
+      yield { type: 'content_block_start', index, content_block: plan.block } as unknown as MessageStreamEvent
+      yield { type: 'content_block_stop', index } as unknown as MessageStreamEvent
     }
     // 2) 执行。输出被 token 上限截断时参数可能不完整，不执行，回填错误让模型重发。
     const truncated = stopReason === 'length'
@@ -349,8 +349,9 @@ export async function* streamWithRelayTools(
       const plan = plans[i]
       const run = runs[i]
       for (const block of run.blocks) {
-        yield { type: 'content_block_start', index: offset++, content_block: block } as unknown as MessageStreamEvent
-        yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
+        const index = 800 + offset++
+        yield { type: 'content_block_start', index, content_block: block } as unknown as MessageStreamEvent
+        yield { type: 'content_block_stop', index } as unknown as MessageStreamEvent
       }
       resultContent.push({ type: 'tool_result', tool_use_id: plan.id, content: run.result })
     }
@@ -370,8 +371,9 @@ export async function* streamWithRelayTools(
     )
     if (sources > 0 && round === 0) {
       const progress = `🔎 已获取 ${sources} 个网页，模型正在组织回答…`
-      yield { type: 'content_block_start', index: offset++, content_block: { type: 'text', text: progress } } as unknown as MessageStreamEvent
-      yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent
+      const index = 800 + offset++
+      yield { type: 'content_block_start', index, content_block: { type: 'text', text: progress } } as unknown as MessageStreamEvent
+      yield { type: 'content_block_stop', index } as unknown as MessageStreamEvent
     }
     messages.push({ role: 'user', content: resultContent })
     // 连续两轮工具都没产出（全部报错）就停手，避免无限重试烧额度。

@@ -2279,13 +2279,17 @@ window.__ModuleLoader__.load({
         const buffered = [];
         let stopReason;
         let sawText = false;
+        let currentRoundHadText = false;
         let currentBlockKind = "";
         const roundBase = offset;
         let roundBlocks = 0;
         for await (const event of streamChatCompletion(requestBody, signal)) {
           if (event.type === "content_block_start") {
             const block = event.content_block;
-            if (block && block.type === "text") sawText = true;
+            if (block && block.type === "text") {
+              sawText = true;
+              currentRoundHadText = true;
+            }
             if (block && block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
               calls.push({ id: block.id, name: block.name, input: block.input ?? {} });
             }
@@ -2294,18 +2298,14 @@ window.__ModuleLoader__.load({
             const delta = event.delta;
             if (delta?.stop_reason) stopReason = delta.stop_reason;
           }
-          if (offerTools) {
-            buffered.push(event);
-          } else {
-            yield offsetEvent(event, offset);
-          }
+          yield event;
         }
         offset = roundBase + roundBlocks;
         if (!offerTools) {
-          if (!sawText && !signal.aborted) {
+          if (!sawText && !signal.aborted && !currentRoundHadText) {
             const notice = "\u6A21\u578B\u8FD9\u4E00\u8F6E\u6CA1\u6709\u751F\u6210\u6B63\u6587\uFF0C\u8BF7\u91CD\u8BD5\uFF1B\u5982\u679C\u6301\u7EED\u51FA\u73B0\uFF0C\u5EFA\u8BAE\u5148\u5173\u95ED\u6DF1\u5EA6\u601D\u8003\u3002";
-            yield { type: "content_block_start", index: offset++, content_block: { type: "text", text: notice } };
-            yield { type: "content_block_stop", index: offset - 1 };
+            yield { type: "content_block_start", index: 900, content_block: { type: "text", text: notice } };
+            yield { type: "content_block_stop", index: 900 };
           }
           return;
         }
@@ -2319,8 +2319,9 @@ window.__ModuleLoader__.load({
           return { call, id: use.id, block: use.block };
         });
         for (const plan of plans) {
-          yield { type: "content_block_start", index: offset++, content_block: plan.block };
-          yield { type: "content_block_stop", index: offset - 1 };
+          const index2 = 800 + offset++;
+          yield { type: "content_block_start", index: index2, content_block: plan.block };
+          yield { type: "content_block_stop", index: index2 };
         }
         const truncated = stopReason === "length";
         const runs = truncated ? batch.map(() => ({
@@ -2339,8 +2340,9 @@ window.__ModuleLoader__.load({
           const plan = plans[i];
           const run = runs[i];
           for (const block of run.blocks) {
-            yield { type: "content_block_start", index: offset++, content_block: block };
-            yield { type: "content_block_stop", index: offset - 1 };
+            const index2 = 800 + offset++;
+            yield { type: "content_block_start", index: index2, content_block: block };
+            yield { type: "content_block_stop", index: index2 };
           }
           resultContent.push({ type: "tool_result", tool_use_id: plan.id, content: run.result });
         }
@@ -2357,8 +2359,9 @@ window.__ModuleLoader__.load({
         );
         if (sources > 0 && round === 0) {
           const progress = `\u{1F50E} \u5DF2\u83B7\u53D6 ${sources} \u4E2A\u7F51\u9875\uFF0C\u6A21\u578B\u6B63\u5728\u7EC4\u7EC7\u56DE\u7B54\u2026`;
-          yield { type: "content_block_start", index: offset++, content_block: { type: "text", text: progress } };
-          yield { type: "content_block_stop", index: offset - 1 };
+          const index2 = 800 + offset++;
+          yield { type: "content_block_start", index: index2, content_block: { type: "text", text: progress } };
+          yield { type: "content_block_stop", index: index2 };
         }
         messages.push({ role: "user", content: resultContent });
         if (runs.every((run) => run.blocks.length === 0)) {
@@ -40529,7 +40532,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.11.1";
+        PLUGIN_VERSION = "1.12.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
