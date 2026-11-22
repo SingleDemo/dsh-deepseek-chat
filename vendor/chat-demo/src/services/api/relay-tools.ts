@@ -158,6 +158,9 @@ export const executeRelayTool = async (
       }
     }
   }
+  if (name !== 'web_search') {
+    return { blocks: [], result: `未知工具：${name}。可用工具只有 web_search 和 read_url。` }
+  }
   // 默认按搜索处理
   // 中转站偶尔把 tool_use 的 input 丢了：这时用用户原问题兜底，保证真的能搜到东西。
   const query = typeof input.query === 'string' && input.query.trim()
@@ -226,6 +229,7 @@ export async function* streamWithRelayTools(
         .join('\n')
       : ''
   let offset = 0
+  let failedRounds = 0
   const MAX_TOOL_ROUNDS = 4
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
     // 最后一轮不再声明工具，逼模型给出最终回答，而不是继续调用。
@@ -292,5 +296,12 @@ export async function* streamWithRelayTools(
     }
     messages.push({ role: 'assistant', content: assistantContent })
     messages.push({ role: 'user', content: resultContent })
+    // 连续两轮工具都没产出（全部报错）就停手，避免无限重试烧额度。
+    if (runs.every((run) => run.blocks.length === 0)) {
+      failedRounds += 1
+      if (failedRounds >= 2) return
+    } else {
+      failedRounds = 0
+    }
   }
 }

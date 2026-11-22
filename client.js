@@ -2263,6 +2263,7 @@ window.__ModuleLoader__.load({
       const lastUser = [...body.messages ?? []].reverse().find((message2) => message2?.role === "user");
       const fallback = typeof lastUser?.content === "string" ? lastUser.content : Array.isArray(lastUser?.content) ? lastUser.content.filter((block) => block?.type === "text").map((block) => block.text ?? "").join("\n") : "";
       let offset = 0;
+      let failedRounds = 0;
       const MAX_TOOL_ROUNDS = 4;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
         const offerTools = round < MAX_TOOL_ROUNDS;
@@ -2321,6 +2322,12 @@ window.__ModuleLoader__.load({
         }
         messages.push({ role: "assistant", content: assistantContent });
         messages.push({ role: "user", content: resultContent });
+        if (runs.every((run) => run.blocks.length === 0)) {
+          failedRounds += 1;
+          if (failedRounds >= 2) return;
+        } else {
+          failedRounds = 0;
+        }
       }
     }
     var RELAY_TOOLS, randomHex, toolId, officialAuth, callSearch, callFetch, executeRelayTool, offsetEvent;
@@ -2442,6 +2449,9 @@ window.__ModuleLoader__.load({
                 result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\u3002"
               };
             }
+          }
+          if (name !== "web_search") {
+            return { blocks: [], result: `\u672A\u77E5\u5DE5\u5177\uFF1A${name}\u3002\u53EF\u7528\u5DE5\u5177\u53EA\u6709 web_search \u548C read_url\u3002` };
           }
           const query3 = typeof input.query === "string" && input.query.trim() ? input.query.trim() : fallback.trim() || String(input.query ?? "");
           const id = toolId("s");
@@ -40458,7 +40468,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.10.0";
+        PLUGIN_VERSION = "1.10.1";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
