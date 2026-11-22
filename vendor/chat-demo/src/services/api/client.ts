@@ -139,6 +139,49 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
+/** 这些失败重发一次有概率成功；鉴权、参数错误不重试。 */
+const isRetryable = (error: unknown): boolean => {
+  if (!(error instanceof ApiError)) return false
+  if (error.kind === 'network' || error.kind === 'protocol') return true
+  return error.status !== undefined && [429, 500, 502, 503, 504].includes(error.status)
+}
+
+const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error('aborted'))
+      return
+    }
+    const timer = setTimeout(resolve, ms)
+    signal.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(new Error('aborted'))
+      },
+      { once: true }
+    )
+  })
+
+/**
+ * 插件改动：传输层失败自动重试（默认再试 2 次，退避 600ms / 1200ms）。
+ * 用户点停止或超时后不再重试，避免拖住界面。
+ */
+export const withRetry = async <T>(
+  run: () => Promise<T>,
+  signal: AbortSignal,
+  attempts = 2
+): Promise<T> => {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run()
+    } catch (error) {
+      if (signal.aborted || attempt >= attempts || !isRetryable(error)) throw error
+      await sleep(600 * 2 ** attempt, signal)
+    }
+  }
+}
+
 /** 账号登录态的默认推理源，账号服务据此判断 token 是否可用 */
 const inferenceOrigin = (): string => {
   try {
@@ -193,16 +236,20 @@ export const chatComplete = async (
   body: Record<string, unknown>,
   signal: AbortSignal
 ): Promise<Record<string, unknown>> => {
-  const response = await request(`${apiBaseUrl()}/messages`, {
-    method: 'POST',
-    headers: {
-      ...anthropicHeaders(chatApiKey(), false),
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
-    body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
-    signal,
-  })
+  const response = await withRetry(
+    () =>
+      request(`${apiBaseUrl()}/messages`, {
+        method: 'POST',
+        headers: {
+          ...anthropicHeaders(chatApiKey(), false),
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+        body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
+        signal,
+      }),
+    signal
+  )
   return (await response.json()) as Record<string, unknown>
 }
 
@@ -211,12 +258,16 @@ export const officialComplete = async (
   signal: AbortSignal
 ): Promise<Record<string, unknown>> => {
   const endpoint = await officialEndpoint()
-  const response = await request(`${endpoint.base}/messages`, {
-    method: 'POST',
-    headers: { ...endpoint.headers, 'content-type': 'application/json', accept: 'application/json' },
-    body: JSON.stringify({ stream: false, ...body }),
-    signal,
-  })
+  const response = await withRetry(
+    () =>
+      request(`${endpoint.base}/messages`, {
+        method: 'POST',
+        headers: { ...endpoint.headers, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ stream: false, ...body }),
+        signal,
+      }),
+    signal
+  )
   return (await response.json()) as Record<string, unknown>
 }
 /** 一个可选模型；字段取服务端 listing，缺失即省略。 */
@@ -238,13 +289,17 @@ export const listModels = async (apiKey: string, signal?: AbortSignal): Promise<
   const account = usesOfficialEndpoint() && usesAccountAuth()
     ? await accountAuthHeaders(inferenceOrigin())
     : {}
-  const response = await request(modelsUrl(), {
-    method: 'GET',
-    headers: 'x-dsh-auth-token' in account
-      ? account
-      : { Authorization: `Bearer ${chatKey}` },
-    signal,
-  })
+  const response = await withRetry(
+    () =>
+      request(modelsUrl(), {
+        method: 'GET',
+        headers: 'x-dsh-auth-token' in account
+          ? account
+          : { Authorization: `Bearer ${chatKey}` },
+        signal,
+      }),
+    signal
+  )
   const body = (await response.json()) as { data?: unknown }
   const data = Array.isArray(body.data) ? body.data : []
   const models: ModelInfo[] = []
@@ -377,16 +432,20 @@ export async function* streamMessage(
   if (!usesOfficialEndpoint()) {
     // 兼容端点不认识 DeepSeek 的扩展角色，剥掉后按标准 Messages 发送。
     const messages = body.messages.filter((message) => message.role !== 'latest_reminder')
-    const plain = await authedRequest(`${apiBaseUrl()}/messages`, {
-      method: 'POST',
-      headers: {
-        ...anthropicHeaders(apiKey, hasFile(body)),
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({ ...body, messages, stream: false }),
-      signal,
-    })
+    const plain = await withRetry(
+      () =>
+        authedRequest(`${apiBaseUrl()}/messages`, {
+          method: 'POST',
+          headers: {
+            ...anthropicHeaders(apiKey, hasFile(body)),
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify({ ...body, messages, stream: false }),
+          signal,
+        }),
+      signal
+    )
     let payload: unknown
     try {
       payload = await plain.json()

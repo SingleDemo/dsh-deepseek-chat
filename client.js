@@ -1828,16 +1828,19 @@ window.__ModuleLoader__.load({
       }
       if (!usesOfficialEndpoint()) {
         const messages = body.messages.filter((message2) => message2.role !== "latest_reminder");
-        const plain = await authedRequest(`${apiBaseUrl()}/messages`, {
-          method: "POST",
-          headers: {
-            ...anthropicHeaders(apiKey, hasFile(body)),
-            "Content-Type": "application/json",
-            Accept: "application/json"
-          },
-          body: JSON.stringify({ ...body, messages, stream: false }),
+        const plain = await withRetry(
+          () => authedRequest(`${apiBaseUrl()}/messages`, {
+            method: "POST",
+            headers: {
+              ...anthropicHeaders(apiKey, hasFile(body)),
+              "Content-Type": "application/json",
+              Accept: "application/json"
+            },
+            body: JSON.stringify({ ...body, messages, stream: false }),
+            signal
+          }),
           signal
-        });
+        );
         let payload;
         try {
           payload = await plain.json();
@@ -1892,7 +1895,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, chatApiKey, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, chatComplete, officialComplete, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, chatApiKey, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, chatComplete, officialComplete, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -1978,6 +1981,36 @@ window.__ModuleLoader__.load({
           }
           return response;
         };
+        isRetryable = (error) => {
+          if (!(error instanceof ApiError)) return false;
+          if (error.kind === "network" || error.kind === "protocol") return true;
+          return error.status !== void 0 && [429, 500, 502, 503, 504].includes(error.status);
+        };
+        sleep = (ms, signal) => new Promise((resolve, reject) => {
+          if (signal.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          const timer2 = setTimeout(resolve, ms);
+          signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(timer2);
+              reject(new Error("aborted"));
+            },
+            { once: true }
+          );
+        });
+        withRetry = async (run, signal, attempts = 2) => {
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              return await run();
+            } catch (error) {
+              if (signal.aborted || attempt >= attempts || !isRetryable(error)) throw error;
+              await sleep(600 * 2 ** attempt, signal);
+            }
+          }
+        };
         inferenceOrigin = () => {
           try {
             return new URL(apiBaseUrl()).origin;
@@ -2012,37 +2045,46 @@ window.__ModuleLoader__.load({
           }
         };
         chatComplete = async (body, signal) => {
-          const response = await request(`${apiBaseUrl()}/messages`, {
-            method: "POST",
-            headers: {
-              ...anthropicHeaders(chatApiKey(), false),
-              "content-type": "application/json",
-              accept: "application/json"
-            },
-            body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
+          const response = await withRetry(
+            () => request(`${apiBaseUrl()}/messages`, {
+              method: "POST",
+              headers: {
+                ...anthropicHeaders(chatApiKey(), false),
+                "content-type": "application/json",
+                accept: "application/json"
+              },
+              body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
+              signal
+            }),
             signal
-          });
+          );
           return await response.json();
         };
         officialComplete = async (body, signal) => {
           const endpoint = await officialEndpoint();
-          const response = await request(`${endpoint.base}/messages`, {
-            method: "POST",
-            headers: { ...endpoint.headers, "content-type": "application/json", accept: "application/json" },
-            body: JSON.stringify({ stream: false, ...body }),
+          const response = await withRetry(
+            () => request(`${endpoint.base}/messages`, {
+              method: "POST",
+              headers: { ...endpoint.headers, "content-type": "application/json", accept: "application/json" },
+              body: JSON.stringify({ stream: false, ...body }),
+              signal
+            }),
             signal
-          });
+          );
           return await response.json();
         };
         listModels = async (apiKey, signal) => {
           const settings = useSettings2.getState();
           const chatKey = settings.chatApiKey || apiKey;
           const account = usesOfficialEndpoint() && usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {};
-          const response = await request(modelsUrl(), {
-            method: "GET",
-            headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${chatKey}` },
+          const response = await withRetry(
+            () => request(modelsUrl(), {
+              method: "GET",
+              headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${chatKey}` },
+              signal
+            }),
             signal
-          });
+          );
           const body = await response.json();
           const data = Array.isArray(body.data) ? body.data : [];
           const models = [];
@@ -40252,7 +40294,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.5.1";
+        PLUGIN_VERSION = "1.5.2";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
