@@ -774,7 +774,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/settings.ts
-    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setRelayTools, setRelayFallback, setChatApiKey, setModel;
+    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setRelayFallback, setChatApiKey, setModel;
     var init_settings = __esm({
       "vendor/chat-demo/src/services/settings.ts"() {
         init_react_shim();
@@ -900,16 +900,12 @@ window.__ModuleLoader__.load({
           write(KEYS.authMode, authMode);
           useSettings2.setState({ authMode });
         };
-        setRelayTools = (relayTools) => {
-          write(KEYS.relayTools, relayTools ? "1" : null);
-          useSettings2.setState({ relayTools });
-        };
         setRelayFallback = (relayFallback) => {
           write(KEYS.relayFallback, relayFallback ? "1" : null);
           useSettings2.setState({ relayFallback });
         };
-        setChatApiKey = (chatApiKey2) => {
-          const value = chatApiKey2 && chatApiKey2.trim() ? chatApiKey2.trim() : null;
+        setChatApiKey = (chatApiKey) => {
+          const value = chatApiKey && chatApiKey.trim() ? chatApiKey.trim() : null;
           write(KEYS.chatApiKey, value);
           useSettings2.setState({ chatApiKey: value });
         };
@@ -1112,6 +1108,7 @@ window.__ModuleLoader__.load({
           replyFallbackNotice: "\u26A0\uFE0F Your chat endpoint failed. This answer was produced by DeepSeek as a fallback, not by the selected model.",
           replyToolNotice: "\u26A0\uFE0F Web search could not finish; this answer does not use search results.",
           replyToolsOffNotice: "\u26A0\uFE0F Web access is off for this endpoint, so this answer used no search results. Enable it in \u8BBE\u7F6E \u2192 \u6570\u636E\u7BA1\u7406.",
+          replyToolStart: "\u{1F50D} Searching the web\u2026",
           settingsChatApiKeyPlaceholder: "Empty reuses the official credential",
           settingsAuthModeHint: "powers web search, link reading, read-aloud and speech input",
           settingsApiBaseUrlPlaceholder: "Leave empty to use the default",
@@ -1333,6 +1330,7 @@ window.__ModuleLoader__.load({
           replyFallbackNotice: "\u26A0\uFE0F \u4F60\u7684\u5BF9\u8BDD\u63A5\u53E3\u8BF7\u6C42\u5931\u8D25\uFF0C\u672C\u8F6E\u56DE\u7B54\u7531 DeepSeek \u5B98\u65B9\u6A21\u578B\u515C\u5E95\u5B8C\u6210\uFF0C\u4E0D\u662F\u6240\u9009\u6A21\u578B\u751F\u6210\u3002",
           replyToolNotice: "\u26A0\uFE0F \u8054\u7F51\u68C0\u7D22\u6CA1\u6709\u5B8C\u6210\uFF0C\u4EE5\u4E0B\u56DE\u7B54\u672A\u4F7F\u7528\u641C\u7D22\u7ED3\u679C\u3002",
           replyToolsOffNotice: "\u26A0\uFE0F \u5F53\u524D\u5BF9\u8BDD\u63A5\u53E3\u672A\u5F00\u542F\u300C\u81EA\u4E3B\u8054\u7F51\u300D\uFF0C\u672C\u8F6E\u6CA1\u6709\u8054\u7F51\u641C\u7D22\u7ED3\u679C\u3002\u9700\u8981\u8054\u7F51\u8BF7\u5728\u8BBE\u7F6E \u2192 \u6570\u636E\u7BA1\u7406\u6253\u5F00\u300C\u8BA9\u81EA\u5B9A\u4E49\u6A21\u578B\u81EA\u4E3B\u8054\u7F51\u300D\u3002",
+          replyToolStart: "\u{1F50D} \u6B63\u5728\u8054\u7F51\u68C0\u7D22\u2026",
           settingsChatApiKeyPlaceholder: "\u7559\u7A7A\u590D\u7528\u5B98\u65B9\u51ED\u636E",
           settingsAuthModeHint: "\u7528\u4E8E\u8054\u7F51\u641C\u7D22\u3001\u8BFB\u94FE\u63A5\u3001\u6717\u8BFB\u3001\u8BED\u97F3\u8BC6\u522B",
           settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740",
@@ -1957,7 +1955,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, chatApiKey, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, chatComplete, officialComplete, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, officialComplete, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -1977,10 +1975,6 @@ window.__ModuleLoader__.load({
           return /^https?:\/\/api\.deepseek\.com$/i.test(trimmed) ? `${trimmed}/anthropic/v1` : `${trimmed}/v1`;
         };
         apiBaseUrl = () => resolveBase(useSettings2.getState().apiBaseUrl);
-        chatApiKey = () => {
-          const settings = useSettings2.getState();
-          return settings.chatApiKey || settings.apiKey || "";
-        };
         officialEndpoint = async () => {
           if (usesAccountAuth()) {
             const account = await accountAuthHeaders(OFFICIAL_ORIGIN);
@@ -2109,22 +2103,6 @@ window.__ModuleLoader__.load({
             throw error;
           }
         };
-        chatComplete = async (body, signal) => {
-          const response = await withRetry(
-            () => request(`${apiBaseUrl()}/messages`, {
-              method: "POST",
-              headers: {
-                ...anthropicHeaders(chatApiKey(), false),
-                "content-type": "application/json",
-                accept: "application/json"
-              },
-              body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
-              signal
-            }),
-            signal
-          );
-          return await response.json();
-        };
         officialComplete = async (body, signal) => {
           const endpoint = await officialEndpoint();
           const response = await withRetry(
@@ -2222,32 +2200,11 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/chat/tools.ts
-    var CLIENT_TOOLS, DECIDE_SYSTEM, randomHex, toolUseId, withTimeout, decide, executeSearch, executeRead, runToolPhase;
+    var randomHex, toolUseId, withTimeout, executeSearch, executeRead, searchBlocks, runDirectTools;
     var init_tools = __esm({
       "vendor/chat-demo/src/services/chat/tools.ts"() {
         init_react_shim();
         init_client();
-        CLIENT_TOOLS = [
-          {
-            name: "web_search",
-            description: "Search the web for current information. Use it when the question needs fresh news, prices, or anything after your training data.",
-            input_schema: {
-              type: "object",
-              properties: { query: { type: "string", description: "search keywords" } },
-              required: ["query"]
-            }
-          },
-          {
-            name: "read_url",
-            description: "Read a web page the user linked and use its content when the answer depends on it.",
-            input_schema: {
-              type: "object",
-              properties: { url: { type: "string", description: "absolute http(s) url" } },
-              required: ["url"]
-            }
-          }
-        ];
-        DECIDE_SYSTEM = "You can call web_search and read_url. Call a tool only when the answer needs live information or the content of a link the user gave; otherwise answer directly.";
         randomHex = () => {
           const bytes = new Uint8Array(8);
           crypto.getRandomValues(bytes);
@@ -2260,36 +2217,6 @@ window.__ModuleLoader__.load({
           } catch {
             return signal;
           }
-        };
-        decide = async (question, model, signal) => {
-          const payload = await chatComplete(
-            {
-              model,
-              system: DECIDE_SYSTEM,
-              max_tokens: 512,
-              thinking: { type: "disabled" },
-              messages: [{ role: "user", content: question }],
-              tools: CLIENT_TOOLS,
-              tool_choice: { type: "auto" }
-            },
-            withTimeout(signal, 45e3)
-          );
-          const content3 = Array.isArray(payload.content) ? payload.content : [];
-          const calls = [];
-          for (const block of content3) {
-            if (!block || typeof block !== "object") continue;
-            const item = block;
-            if (item.type !== "tool_use" || typeof item.name !== "string") continue;
-            const input = item.input && typeof item.input === "object" ? item.input : {};
-            if (item.name === "web_search" && typeof input.query === "string" && input.query.trim()) {
-              calls.push({ kind: "search", query: input.query.trim() });
-            }
-            if (item.name === "read_url" && typeof input.url === "string" && /^https?:\/\//i.test(input.url.trim())) {
-              calls.push({ kind: "read", url: input.url.trim() });
-            }
-            if (calls.length >= 3) break;
-          }
-          return calls;
         };
         executeSearch = async (query3, signal) => {
           const payload = await officialComplete(
@@ -2335,71 +2262,75 @@ window.__ModuleLoader__.load({
           const text9 = blocks.filter((block) => block && typeof block === "object" && block.type === "text").map((block) => String(block.text ?? "")).join("\n").slice(0, 4e3);
           return { text: text9 };
         };
-        runToolPhase = async (input) => {
-          if (!input.question.trim()) return null;
-          const calls = await decide(input.question, input.model, input.signal);
-          if (!calls.length) return null;
-          const blocks = [];
-          const parts = [];
-          let searches = 0;
-          let reads = 0;
-          for (const call of calls) {
-            if (input.signal.aborted) break;
-            if (call.kind === "search") {
-              const id2 = toolUseId("s");
-              const { sources, text: text10 } = await executeSearch(call.query, input.signal);
-              const use2 = {
-                type: "server_tool_use",
-                id: id2,
-                name: "deepseek_web_search",
-                input: { action: "search", queries: [call.query] },
-                caller: { type: "direct" },
-                kind: "search"
-              };
-              const result2 = {
-                type: "web_search_tool_result",
-                tool_use_id: id2,
-                content: sources,
-                kind: "search"
-              };
-              blocks.push(use2, result2);
-              searches += 1;
-              if (text10) parts.push(`\u641C\u7D22\u300C${call.query}\u300D\u7684\u7ED3\u679C\uFF1A
-    ${text10}`);
-              continue;
-            }
-            const id = toolUseId("rl");
-            const { text: text9 } = await executeRead(call.url, input.signal);
-            const use = {
-              type: "server_tool_use",
-              id,
-              name: "deepseek_read_url",
-              input: { action: "read_link", url: call.url },
-              caller: { type: "direct" },
-              kind: "read_link"
-            };
-            const result = {
-              type: "web_fetch_tool_result",
-              tool_use_id: id,
-              content: {
-                type: "web_fetch_result",
-                url: call.url,
-                content: { type: "document", source: { type: "text", media_type: "text/plain", data: "" }, title: null },
-                published_at: null
-              },
-              kind: "read_link"
-            };
-            blocks.push(use, result);
-            reads += 1;
-            if (text9) parts.push(`\u94FE\u63A5 ${call.url} \u7684\u5185\u5BB9\u8981\u70B9\uFF1A
-    ${text9}`);
+        searchBlocks = (query3, id, sources) => [
+          {
+            type: "server_tool_use",
+            id,
+            name: "deepseek_web_search",
+            input: { action: "search", queries: [query3] },
+            caller: { type: "direct" },
+            kind: "search"
+          },
+          {
+            type: "web_search_tool_result",
+            tool_use_id: id,
+            content: sources,
+            kind: "search"
           }
-          if (!blocks.length) return null;
-          const context = parts.length ? `
+        ];
+        runDirectTools = async (input) => {
+          const question = input.question.trim();
+          if (!question) return null;
+          const link = question.match(/https?:\/\/[^\s"'）)]+/)?.[0];
+          try {
+            if (link) {
+              const id2 = toolUseId("rl");
+              const { text: text10 } = await executeRead(link, input.signal);
+              const blocks = [
+                {
+                  type: "server_tool_use",
+                  id: id2,
+                  name: "deepseek_read_url",
+                  input: { action: "read_link", url: link },
+                  caller: { type: "direct" },
+                  kind: "read_link"
+                },
+                {
+                  type: "web_fetch_tool_result",
+                  tool_use_id: id2,
+                  content: {
+                    type: "web_fetch_result",
+                    url: link,
+                    content: { type: "document", source: { type: "text", media_type: "text/plain", data: "" }, title: null },
+                    published_at: null
+                  },
+                  kind: "read_link"
+                }
+              ];
+              return {
+                blocks,
+                context: text10 ? `
+    
+    \u4EE5\u4E0B\u662F\u521A\u521A\u8BFB\u53D6\u7684\u94FE\u63A5\u5185\u5BB9\uFF0C\u56DE\u7B54\u65F6\u53EF\u76F4\u63A5\u4F7F\u7528\uFF1A
+    ${text10}` : "",
+                searches: 0,
+                reads: 1
+              };
+            }
+            const id = toolUseId("s");
+            const { sources, text: text9 } = await executeSearch(question, input.signal);
+            return {
+              blocks: searchBlocks(question, id, sources),
+              context: text9 ? `
     
     \u4EE5\u4E0B\u662F\u521A\u521A\u8054\u7F51\u53D6\u5F97\u7684\u8D44\u6599\uFF0C\u56DE\u7B54\u65F6\u53EF\u76F4\u63A5\u4F7F\u7528\uFF1B\u4E0D\u8981\u58F0\u79F0\u65E0\u6CD5\u8054\u7F51\uFF1A
-    ${parts.join("\n\n")}` : "";
-          return { blocks, context, searches, reads };
+    ${text9}` : "",
+              searches: 1,
+              reads: 0
+            };
+          } catch {
+            return null;
+          }
         };
       }
     });
@@ -5471,33 +5402,33 @@ window.__ModuleLoader__.load({
                 let toolAttempted = false;
                 const lastMessage = messages[messages.length - 1];
                 const questionText = typeof lastMessage?.content === "string" ? lastMessage.content : Array.isArray(lastMessage?.content) ? lastMessage.content.filter((block) => block.type === "text").map((block) => block.text).join("\n") : "";
-                if (customChat && searchEnabled && !useSettings2.getState().relayTools && !request2.prefix && !request2.history.length && !controller.signal.aborted) {
-                  reply = withNotice(reply, "replyToolsOffNotice");
+                if (customChat && searchEnabled && !request2.prefix && !controller.signal.aborted) {
+                  const pending2 = { type: "text", text: translate("replyToolStart"), isTemplate: true };
+                  reply = { ...reply, blocks: [pending2, ...reply.blocks] };
                   updateReply(sessionId2, reply);
                   persist(sessionId2);
-                }
-                if (customChat && searchEnabled && useSettings2.getState().relayTools && !request2.prefix) {
                   try {
-                    const phase = await runToolPhase({
+                    const phase = await runDirectTools({
                       question: questionText,
-                      model: requestedModel,
                       signal: controller.signal
                     });
                     toolAttempted = true;
+                    reply = { ...reply, blocks: reply.blocks.filter((block) => block !== pending2) };
                     if (phase && !controller.signal.aborted) {
                       toolContext = phase.context;
                       if (phase.blocks.length) {
                         reply = { ...reply, blocks: [...phase.blocks, ...reply.blocks] };
-                        updateReply(sessionId2, reply);
-                        persist(sessionId2);
                       }
                     }
+                    updateReply(sessionId2, reply);
+                    persist(sessionId2);
                   } catch {
+                    reply = { ...reply, blocks: reply.blocks.filter((block) => block !== pending2) };
                     if (!controller.signal.aborted) {
                       reply = withNotice(reply, "replyToolNotice");
-                      updateReply(sessionId2, reply);
-                      persist(sessionId2);
                     }
+                    updateReply(sessionId2, reply);
+                    persist(sessionId2);
                   }
                 }
                 const useOfficial = officialFallback;
@@ -40381,7 +40312,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.6.2";
+        PLUGIN_VERSION = "1.6.3";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40456,7 +40387,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/components/settings/SettingsDialog.tsx
-    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, RelayToolsSetting, RelayFallbackSetting, ChatApiKeySetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
+    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, RelayFallbackSetting, ChatApiKeySetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
     var init_SettingsDialog = __esm({
       "vendor/chat-demo/src/components/settings/SettingsDialog.tsx"() {
         init_react_shim();
@@ -40527,7 +40458,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(RelayToolsSetting, null), /* @__PURE__ */ React.createElement(RelayFallbackSetting, null), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(RelayFallbackSetting, null), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t("deleteAllSessions"),
@@ -40713,28 +40644,6 @@ window.__ModuleLoader__.load({
             }
           );
         };
-        RelayToolsSetting = () => {
-          const t = useTranslate();
-          const relayTools = useSettings2((state) => state.relayTools);
-          return /* @__PURE__ */ React.createElement(
-            SettingCell,
-            {
-              label: t("settingsRelayTools"),
-              description: t("settingsRelayToolsHint"),
-              status: null,
-              action: /* @__PURE__ */ React.createElement(
-                "input",
-                {
-                  type: "checkbox",
-                  className: Settings_default.checkbox,
-                  checked: relayTools,
-                  "aria-label": t("settingsRelayTools"),
-                  onChange: (event) => setRelayTools(event.target.checked)
-                }
-              )
-            }
-          );
-        };
         RelayFallbackSetting = () => {
           const t = useTranslate();
           const relayFallback = useSettings2((state) => state.relayFallback);
@@ -40759,9 +40668,9 @@ window.__ModuleLoader__.load({
         };
         ChatApiKeySetting = () => {
           const t = useTranslate();
-          const chatApiKey2 = useSettings2((state) => state.chatApiKey);
-          const [draft, setDraft] = (0, import_react34.useState)(chatApiKey2 ?? "");
-          (0, import_react34.useEffect)(() => setDraft(chatApiKey2 ?? ""), [chatApiKey2]);
+          const chatApiKey = useSettings2((state) => state.chatApiKey);
+          const [draft, setDraft] = (0, import_react34.useState)(chatApiKey ?? "");
+          (0, import_react34.useEffect)(() => setDraft(chatApiKey ?? ""), [chatApiKey]);
           const commit = () => setChatApiKey(draft.trim() || null);
           return /* @__PURE__ */ React.createElement(
             SettingCell,

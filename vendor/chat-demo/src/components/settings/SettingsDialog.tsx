@@ -120,7 +120,6 @@ const SettingsContent = () => {
               <ApiKeyField editor={apiKeyEditor} />
               <ApiBaseUrlSetting />
               <ChatApiKeySetting />
-              <RelayToolsSetting />
               <RelayFallbackSetting />
               <ModelSetting />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />

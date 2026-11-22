@@ -189,6 +189,7 @@ export const zh = {
   replyFallbackNotice: '⚠️ 你的对话接口请求失败，本轮回答由 DeepSeek 官方模型兜底完成，不是所选模型生成。',
   replyToolNotice: '⚠️ 联网检索没有完成，以下回答未使用搜索结果。',
   replyToolsOffNotice: '⚠️ 当前对话接口未开启「自主联网」，本轮没有联网搜索结果。需要联网请在设置 → 数据管理打开「让自定义模型自主联网」。',
+  replyToolStart: '🔍 正在联网检索…',
   settingsChatApiKeyPlaceholder: '留空复用官方凭据',
   settingsAuthModeHint: '用于联网搜索、读链接、朗读、语音识别',
   settingsApiBaseUrlPlaceholder: '留空使用默认地址',

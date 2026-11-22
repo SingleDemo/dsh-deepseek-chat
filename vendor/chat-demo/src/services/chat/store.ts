@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage, usesOfficialEndpoint } from '../api/client.js'
-import { runToolPhase } from './tools.js'
+import { runDirectTools } from './tools.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
@@ -1113,43 +1113,36 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
               .map((block) => block.text)
               .join('\n')
             : ''
-        // 自定义接口 + 搜索开但没开「自主联网」：第一轮明确告诉用户本轮没联网。
-        if (
-          customChat &&
-          searchEnabled &&
-          !useSettings.getState().relayTools &&
-          !request.prefix &&
-          !request.history.length &&
-          !controller.signal.aborted
-        ) {
-          reply = withNotice(reply, 'replyToolsOffNotice')
+        // 智能搜索开关即是联网开关：先展示「正在检索」，再让模型判断并执行。
+        if (customChat && searchEnabled && !request.prefix && !controller.signal.aborted) {
+          const pending = { type: 'text', text: translate('replyToolStart'), isTemplate: true }
+          reply = { ...reply, blocks: [pending as unknown as ReplyBlock, ...reply.blocks] }
           updateReply(sessionId, reply)
           persist(sessionId)
-        }
-        if (customChat && searchEnabled && useSettings.getState().relayTools && !request.prefix) {
           try {
-            const phase = await runToolPhase({
+            const phase = await runDirectTools({
               question: questionText,
-              model: requestedModel,
               signal: controller.signal,
             })
             toolAttempted = true
+            reply = { ...reply, blocks: reply.blocks.filter((block) => block !== (pending as unknown as ReplyBlock)) }
             if (phase && !controller.signal.aborted) {
               toolContext = phase.context
               if (phase.blocks.length) {
                 reply = { ...reply, blocks: [...phase.blocks, ...reply.blocks] }
-                updateReply(sessionId, reply)
-                persist(sessionId)
               }
             }
+            updateReply(sessionId, reply)
+            persist(sessionId)
           } catch {
             // 工具阶段失败（超时、模型不支持工具、接口异常）就按普通对话发送，
             // 但要让用户知道这一轮没有联网。
+            reply = { ...reply, blocks: reply.blocks.filter((block) => block !== (pending as unknown as ReplyBlock)) }
             if (!controller.signal.aborted) {
               reply = withNotice(reply, 'replyToolNotice')
-              updateReply(sessionId, reply)
-              persist(sessionId)
             }
+            updateReply(sessionId, reply)
+            persist(sessionId)
           }
         }
         // 只有用户显式开启「官方兜底」时才换模型；否则一律用用户配置的模型。

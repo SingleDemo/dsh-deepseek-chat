@@ -197,6 +197,7 @@ export const en = {
   replyFallbackNotice: '⚠️ Your chat endpoint failed. This answer was produced by DeepSeek as a fallback, not by the selected model.',
   replyToolNotice: '⚠️ Web search could not finish; this answer does not use search results.',
   replyToolsOffNotice: '⚠️ Web access is off for this endpoint, so this answer used no search results. Enable it in 设置 → 数据管理.',
+  replyToolStart: '🔍 Searching the web…',
   settingsChatApiKeyPlaceholder: 'Empty reuses the official credential',
   settingsAuthModeHint: 'powers web search, link reading, read-aloud and speech input',
   settingsApiBaseUrlPlaceholder: 'Leave empty to use the default',

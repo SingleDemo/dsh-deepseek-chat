@@ -74,13 +74,13 @@ const decide = async (question: string, model: string, signal: AbortSignal): Pro
     {
       model,
       system: DECIDE_SYSTEM,
-      max_tokens: 512,
+      max_tokens: 300,
       thinking: { type: 'disabled' },
       messages: [{ role: 'user', content: question }],
       tools: CLIENT_TOOLS,
       tool_choice: { type: 'auto' },
     },
-    withTimeout(signal, 45000)
+    withTimeout(signal, 20000)
   )
   const content = Array.isArray(payload.content) ? payload.content : []
   const calls: ToolCall[] = []
@@ -230,4 +230,78 @@ export const runToolPhase = async (input: {
     ? `\n\n以下是刚刚联网取得的资料，回答时可直接使用；不要声称无法联网：\n${parts.join('\n\n')}`
     : ''
   return { blocks, context, searches, reads }
+}
+
+/** 构建一条工具调用 + 结果块，搜索与读链接共用。 */
+const searchBlocks = (query: string, id: string, sources: WebSearchResult[]): ReplyBlock[] => [
+  {
+    type: 'server_tool_use',
+    id,
+    name: 'deepseek_web_search',
+    input: { action: 'search', queries: [query] },
+    caller: { type: 'direct' },
+    kind: 'search',
+  } as unknown as ReplyBlock,
+  {
+    type: 'web_search_tool_result',
+    tool_use_id: id,
+    content: sources,
+    kind: 'search',
+  } as unknown as ReplyBlock,
+]
+
+/**
+ * 开关即联网：不再先问一轮模型，直接用问题本身执行一次官方搜索，
+ * 或读取问题里出现的链接。返回的块与资料和 runToolPhase 一致。
+ */
+export const runDirectTools = async (input: {
+  question: string
+  signal: AbortSignal
+}): Promise<ToolPhase | null> => {
+  const question = input.question.trim()
+  if (!question) return null
+  const link = question.match(/https?:\/\/[^\s"'）)]+/)?.[0]
+  try {
+    if (link) {
+      const id = toolUseId('rl')
+      const { text } = await executeRead(link, input.signal)
+      const blocks: ReplyBlock[] = [
+        {
+          type: 'server_tool_use',
+          id,
+          name: 'deepseek_read_url',
+          input: { action: 'read_link', url: link },
+          caller: { type: 'direct' },
+          kind: 'read_link',
+        } as unknown as ReplyBlock,
+        {
+          type: 'web_fetch_tool_result',
+          tool_use_id: id,
+          content: {
+            type: 'web_fetch_result',
+            url: link,
+            content: { type: 'document', source: { type: 'text', media_type: 'text/plain', data: '' }, title: null },
+            published_at: null,
+          },
+          kind: 'read_link',
+        } as unknown as ReplyBlock,
+      ]
+      return {
+        blocks,
+        context: text ? `\n\n以下是刚刚读取的链接内容，回答时可直接使用：\n${text}` : '',
+        searches: 0,
+        reads: 1,
+      }
+    }
+    const id = toolUseId('s')
+    const { sources, text } = await executeSearch(question, input.signal)
+    return {
+      blocks: searchBlocks(question, id, sources),
+      context: text ? `\n\n以下是刚刚联网取得的资料，回答时可直接使用；不要声称无法联网：\n${text}` : '',
+      searches: 1,
+      reads: 0,
+    }
+  } catch {
+    return null
+  }
 }
