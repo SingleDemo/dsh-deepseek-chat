@@ -1060,6 +1060,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
   streamFlushes.set(sessionId, flush)
 
   try {
+    let officialFallback = false
+    let customChatTurn = false
     for (let attempt = 0; ; attempt += 1) {
       /** 附件补齐前出错属于上传失败，请求还没有发出 */
       let preparing = true
@@ -1086,6 +1088,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const searchEnabled = initial.search ?? false
         // 配了独立的对话接口时，普通对话走它；搜索/读链接那一轮仍走 DeepSeek 官方。
         const customChat = Boolean((settings.apiBaseUrl ?? '').trim() || (settings.chatApiKey ?? '').trim())
+        customChatTurn = customChat
         // 插件改动：自定义接口 + 智能搜索时，先让自定义模型决定是否联网，
         // 搜索/读链接由官方执行，结果作为资料注入本轮回答。
         let toolContext = ''
@@ -1120,7 +1123,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             // 工具阶段失败（超时、模型不支持工具、接口异常）就按普通对话发送
           }
         }
-        const useOfficial = customChat && searchEnabled && !toolAttempted
+        const useOfficial = officialFallback || (customChat && searchEnabled && !toolAttempted)
         const resolved = useOfficial
           ? { model: TOOL_MODEL, extended: true, delegated: true }
           : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat)
@@ -1200,6 +1203,18 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             reply = settleReply(reply, 'stopped', Date.now())
             break
           }
+          continue
+        }
+        // 自定义接口在传输层失败时，改用 DeepSeek 官方再试一次，避免整轮失败。
+        if (
+          !officialFallback &&
+          customChatTurn &&
+          attempt < 1 &&
+          !receivedContent &&
+          error instanceof ApiError &&
+          (error.kind === 'network' || error.kind === 'protocol')
+        ) {
+          officialFallback = true
           continue
         }
         if (error instanceof ApiError && error.kind === 'interrupted' && reply.stopReason) {

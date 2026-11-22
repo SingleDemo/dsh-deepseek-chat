@@ -749,8 +749,8 @@ window.__ModuleLoader__.load({
           if (!value || typeof value !== "object" || Array.isArray(value)) {
             return null;
           }
-          const location = value;
-          const { region, province, city } = location;
+          const location2 = value;
+          const { region, province, city } = location2;
           if (typeof region !== "string" || !regions.has(region)) {
             return null;
           }
@@ -822,11 +822,11 @@ window.__ModuleLoader__.load({
         };
         initialLocation = () => {
           try {
-            const location = normalizeLocation(JSON.parse(read(KEYS.location) ?? "null"));
-            if (!location) {
+            const location2 = normalizeLocation(JSON.parse(read(KEYS.location) ?? "null"));
+            if (!location2) {
               return null;
             }
-            return isChineseBrowser() ? location.region === "CN" && location.province ? location : null : { region: location.region };
+            return isChineseBrowser() ? location2.region === "CN" && location2.province ? location2 : null : { region: location2.region };
           } catch {
             return null;
           }
@@ -856,9 +856,9 @@ window.__ModuleLoader__.load({
           useSettings2.setState({ locale });
         };
         setLocation = (value) => {
-          const location = normalizeLocation(value);
-          write(KEYS.location, location ? JSON.stringify(location) : null);
-          useSettings2.setState({ location });
+          const location2 = normalizeLocation(value);
+          write(KEYS.location, location2 ? JSON.stringify(location2) : null);
+          useSettings2.setState({ location: location2 });
         };
         setThemePreference = (themePreference) => {
           write(KEYS.themePreference, themePreference);
@@ -1838,7 +1838,13 @@ window.__ModuleLoader__.load({
           body: JSON.stringify({ ...body, messages, stream: false }),
           signal
         });
-        for (const event of synthesizeEvents(await plain.json())) {
+        let payload;
+        try {
+          payload = await plain.json();
+        } catch {
+          throw new ApiError("protocol", `${new URL(`${apiBaseUrl()}/messages`).host} \xB7 \u8FD4\u56DE\u7684\u4E0D\u662F JSON\uFF0C\u8BF7\u68C0\u67E5\u5BF9\u8BDD\u63A5\u53E3\u5730\u5740`);
+        }
+        for (const event of synthesizeEvents(payload)) {
           yield event;
         }
         return;
@@ -1960,7 +1966,12 @@ window.__ModuleLoader__.load({
             if (init.signal?.aborted) {
               throw error;
             }
-            throw new ApiError("network", error instanceof Error ? error.message : String(error));
+            let host = url;
+            try {
+              host = new URL(url, location.href).host;
+            } catch {
+            }
+            throw new ApiError("network", `${host} \xB7 ${error instanceof Error ? error.message : String(error)}`);
           }
           if (!response.ok) {
             throw await readErrorResponse(response);
@@ -4232,22 +4243,22 @@ window.__ModuleLoader__.load({
         init_location();
         init_format();
         init_i18n();
-        locationName = (location, locale) => {
-          if (!location) {
+        locationName = (location2, locale) => {
+          if (!location2) {
             return "";
           }
-          if (location.region === "CN" && locale === "zh-CN") {
-            const province = provinces.find((item) => item.code === location.province);
-            const city = province?.cities.find((item) => item.code === location.city);
+          if (location2.region === "CN" && locale === "zh-CN") {
+            const province = provinces.find((item) => item.code === location2.province);
+            const city = province?.cities.find((item) => item.code === location2.city);
             return city?.name ?? province?.name ?? getRegionName("CN", locale);
           }
-          return getRegionName(location.region, locale);
+          return getRegionName(location2.region, locale);
         };
-        createLatestReminder = ({ locale, location }, now = /* @__PURE__ */ new Date()) => {
+        createLatestReminder = ({ locale, location: location2 }, now = /* @__PURE__ */ new Date()) => {
           return [
             formatDate(now),
             new Intl.DateTimeFormat(locale, { weekday: "long" }).format(now),
-            locationName(location, locale),
+            locationName(location2, locale),
             "Web",
             translate("latestReminderLanguage")
           ].join(",");
@@ -5317,6 +5328,8 @@ window.__ModuleLoader__.load({
           };
           streamFlushes.set(sessionId2, flush);
           try {
+            let officialFallback = false;
+            let customChatTurn = false;
             for (let attempt = 0; ; attempt += 1) {
               let preparing = true;
               let receivedContent = false;
@@ -5338,6 +5351,7 @@ window.__ModuleLoader__.load({
                 const requestedModel = initial.model ?? settings.model ?? MODEL;
                 const searchEnabled = initial.search ?? false;
                 const customChat = Boolean((settings.apiBaseUrl ?? "").trim() || (settings.chatApiKey ?? "").trim());
+                customChatTurn = customChat;
                 let toolContext = "";
                 let toolAttempted = false;
                 const lastMessage = messages[messages.length - 1];
@@ -5361,7 +5375,7 @@ window.__ModuleLoader__.load({
                   } catch {
                   }
                 }
-                const useOfficial = customChat && searchEnabled && !toolAttempted;
+                const useOfficial = officialFallback || customChat && searchEnabled && !toolAttempted;
                 const resolved = useOfficial ? { model: TOOL_MODEL, extended: true, delegated: true } : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat);
                 const requestKey = useOfficial ? settings.apiKey ?? "" : settings.chatApiKey || settings.apiKey || "";
                 const events = streamMessage(
@@ -5423,6 +5437,10 @@ window.__ModuleLoader__.load({
                     reply = settleReply(reply, "stopped", Date.now());
                     break;
                   }
+                  continue;
+                }
+                if (!officialFallback && customChatTurn && attempt < 1 && !receivedContent && error instanceof ApiError && (error.kind === "network" || error.kind === "protocol")) {
+                  officialFallback = true;
                   continue;
                 }
                 if (error instanceof ApiError && error.kind === "interrupted" && reply.stopReason) {
@@ -40234,7 +40252,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.5.0";
+        PLUGIN_VERSION = "1.5.1";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40468,8 +40486,8 @@ window.__ModuleLoader__.load({
         LocationSetting = () => {
           const t = useTranslate();
           const locale = useSettings2((state) => state.locale);
-          const location = useSettings2((state) => state.location);
-          const province = location?.region === "CN" ? provinces.find((item) => item.code === location.province) : void 0;
+          const location2 = useSettings2((state) => state.location);
+          const province = location2?.region === "CN" ? provinces.find((item) => item.code === location2.province) : void 0;
           return /* @__PURE__ */ React.createElement(
             SettingCell,
             {
@@ -40495,7 +40513,7 @@ window.__ModuleLoader__.load({
                 {
                   ariaLabel: t("settingsLocationCity"),
                   className: Settings_default.citySelect,
-                  value: province ? location?.city ?? "" : "",
+                  value: province ? location2?.city ?? "" : "",
                   disabled: !province?.cities.length,
                   placeholder: t("settingsLocationCity"),
                   options: province?.cities.map((item) => ({ value: item.code, label: item.name })) ?? [],
@@ -40510,7 +40528,7 @@ window.__ModuleLoader__.load({
                 {
                   ariaLabel: t("settingsLocationRegion"),
                   className: Settings_default.regionSelect,
-                  value: location?.region ?? "",
+                  value: location2?.region ?? "",
                   placeholder: t("settingsLocationRegion"),
                   options: regionCodes.map((code2) => ({ value: code2, label: getRegionName(code2, locale) })).sort((a2, b2) => a2.label.localeCompare(b2.label, locale)),
                   onChange: (value) => setLocation({ region: value })

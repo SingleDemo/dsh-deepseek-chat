@@ -125,7 +125,13 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
     if (init.signal?.aborted) {
       throw error
     }
-    throw new ApiError('network', error instanceof Error ? error.message : String(error))
+    let host = url
+    try {
+      host = new URL(url, location.href).host
+    } catch {
+      // 保留原始地址
+    }
+    throw new ApiError('network', `${host} · ${error instanceof Error ? error.message : String(error)}`)
   }
   if (!response.ok) {
     throw await readErrorResponse(response)
@@ -381,7 +387,13 @@ export async function* streamMessage(
       body: JSON.stringify({ ...body, messages, stream: false }),
       signal,
     })
-    for (const event of synthesizeEvents(await plain.json())) {
+    let payload: unknown
+    try {
+      payload = await plain.json()
+    } catch {
+      throw new ApiError('protocol', `${new URL(`${apiBaseUrl()}/messages`).host} · 返回的不是 JSON，请检查对话接口地址`)
+    }
+    for (const event of synthesizeEvents(payload)) {
       yield event
     }
     return
