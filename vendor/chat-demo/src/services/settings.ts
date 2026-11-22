@@ -31,6 +31,8 @@ type Settings = {
   chatApiKey: string | null
   /** 插件额外能力：自定义接口失败时是否改用 DeepSeek 官方兜底（默认关） */
   relayFallback: boolean
+  /** 插件额外能力：自定义模型是否自主联网（每轮多一次判断请求，默认关） */
+  relayTools: boolean
 }
 
 const KEYS = {
@@ -48,6 +50,7 @@ const KEYS = {
   model: 'chat-demo:model',
   chatApiKey: 'chat-demo:chat-api-key',
   relayFallback: 'chat-demo:relay-fallback',
+  relayTools: 'chat-demo:relay-tools',
 } as const
 
 const read = (key: string) => {
@@ -125,6 +128,7 @@ export const useSettings = create<Settings>(() => ({
   model: read(KEYS.model) || 'deepseek-flash',
   chatApiKey: read(KEYS.chatApiKey) || null,
   relayFallback: read(KEYS.relayFallback) === '1',
+  relayTools: read(KEYS.relayTools) === '1',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -181,6 +185,11 @@ export const setThinkingEffort = (thinkingEffort: ThinkingEffort) => {
 export const setAuthMode = (authMode: 'account' | 'key') => {
   write(KEYS.authMode, authMode)
   useSettings.setState({ authMode })
+}
+
+export const setRelayTools = (relayTools: boolean) => {
+  write(KEYS.relayTools, relayTools ? '1' : null)
+  useSettings.setState({ relayTools })
 }
 
 export const setRelayFallback = (relayFallback: boolean) => {

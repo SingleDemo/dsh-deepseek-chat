@@ -31,6 +31,7 @@ import {
   setModel,
   setChatApiKey,
   setRelayFallback,
+  setRelayTools,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -119,6 +120,7 @@ const SettingsContent = () => {
               <ApiKeyField editor={apiKeyEditor} />
               <ApiBaseUrlSetting />
               <ChatApiKeySetting />
+              <RelayToolsSetting />
               <RelayFallbackSetting />
               <ModelSetting />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
@@ -326,6 +328,28 @@ const ThinkingEffortSetting = () => {
             { value: 'max', label: t('settingsThinkingEffortMax') },
           ]}
           onChange={setThinkingEffort}
+        />
+      }
+    />
+  )
+}
+
+/** 插件额外能力：自定义模型是否自主联网（默认关，保证对话最快）。 */
+const RelayToolsSetting = () => {
+  const t = useTranslate()
+  const relayTools = useSettings((state) => state.relayTools)
+  return (
+    <SettingCell
+      label={t('settingsRelayTools')}
+      description={t('settingsRelayToolsHint')}
+      status={null}
+      action={
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          checked={relayTools}
+          aria-label={t('settingsRelayTools')}
+          onChange={(event) => setRelayTools(event.target.checked)}
         />
       }
     />

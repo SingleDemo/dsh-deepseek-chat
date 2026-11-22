@@ -774,7 +774,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/settings.ts
-    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setRelayFallback, setChatApiKey, setModel;
+    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setRelayTools, setRelayFallback, setChatApiKey, setModel;
     var init_settings = __esm({
       "vendor/chat-demo/src/services/settings.ts"() {
         init_react_shim();
@@ -794,7 +794,8 @@ window.__ModuleLoader__.load({
           authMode: "chat-demo:auth-mode",
           model: "chat-demo:model",
           chatApiKey: "chat-demo:chat-api-key",
-          relayFallback: "chat-demo:relay-fallback"
+          relayFallback: "chat-demo:relay-fallback",
+          relayTools: "chat-demo:relay-tools"
         };
         read = (key) => {
           try {
@@ -851,7 +852,8 @@ window.__ModuleLoader__.load({
           authMode: read(KEYS.authMode) === "key" ? "key" : "account",
           model: read(KEYS.model) || "deepseek-flash",
           chatApiKey: read(KEYS.chatApiKey) || null,
-          relayFallback: read(KEYS.relayFallback) === "1"
+          relayFallback: read(KEYS.relayFallback) === "1",
+          relayTools: read(KEYS.relayTools) === "1"
         }));
         setLocale = (locale) => {
           write(KEYS.locale, locale);
@@ -897,6 +899,10 @@ window.__ModuleLoader__.load({
         setAuthMode = (authMode) => {
           write(KEYS.authMode, authMode);
           useSettings2.setState({ authMode });
+        };
+        setRelayTools = (relayTools) => {
+          write(KEYS.relayTools, relayTools ? "1" : null);
+          useSettings2.setState({ relayTools });
         };
         setRelayFallback = (relayFallback) => {
           write(KEYS.relayFallback, relayFallback ? "1" : null);
@@ -1099,10 +1105,13 @@ window.__ModuleLoader__.load({
           settingsApiBaseUrlHint: "Used for plain chat; leave empty for DeepSeek, or paste a relay origin (its /v1 is added)",
           settingsChatApiKey: "Chat endpoint key",
           settingsChatApiKeyHint: "Key for the relay or self-hosted endpoint; required, because the account login only works with DeepSeek itself",
+          settingsRelayTools: "Let the custom model search and read links by itself",
+          settingsRelayToolsHint: "Off by default for the fastest turn; when on, every turn first asks the model whether it needs the web",
           settingsRelayFallback: "Fall back to DeepSeek when the endpoint fails",
           settingsRelayFallbackHint: "Off by default: a failure is reported, so every answer comes from your chosen model. When on, DeepSeek finishes the turn and the answer says so",
           replyFallbackNotice: "\u26A0\uFE0F Your chat endpoint failed. This answer was produced by DeepSeek as a fallback, not by the selected model.",
           replyToolNotice: "\u26A0\uFE0F Web search could not finish; this answer does not use search results.",
+          replyToolsOffNotice: "\u26A0\uFE0F Web access is off for this endpoint, so this answer used no search results. Enable it in \u8BBE\u7F6E \u2192 \u6570\u636E\u7BA1\u7406.",
           settingsChatApiKeyPlaceholder: "Empty reuses the official credential",
           settingsAuthModeHint: "powers web search, link reading, read-aloud and speech input",
           settingsApiBaseUrlPlaceholder: "Leave empty to use the default",
@@ -1317,10 +1326,13 @@ window.__ModuleLoader__.load({
           settingsApiBaseUrlHint: "\u666E\u901A\u5BF9\u8BDD\u7528\uFF1B\u7559\u7A7A\u8D70\u5B98\u65B9 DeepSeek\uFF0C\u4E2D\u8F6C\u7AD9\u586B origin \u5373\u53EF\uFF08\u81EA\u52A8\u8865 /v1\uFF09",
           settingsChatApiKey: "\u5BF9\u8BDD\u63A5\u53E3 Key",
           settingsChatApiKeyHint: "\u4E2D\u8F6C\u7AD9/\u81EA\u5EFA\u63A5\u53E3\u7684 Key\uFF0C\u5FC5\u987B\u586B\uFF08\u8D26\u53F7\u767B\u5F55\u6001\u53EA\u5BF9 DeepSeek \u5B98\u65B9\u6709\u6548\uFF09",
+          settingsRelayTools: "\u8BA9\u81EA\u5B9A\u4E49\u6A21\u578B\u81EA\u4E3B\u8054\u7F51\uFF08\u641C\u7D22 / \u8BFB\u94FE\u63A5\uFF09",
+          settingsRelayToolsHint: "\u9ED8\u8BA4\u5173\u95ED\u65F6\u5BF9\u8BDD\u4E00\u6B65\u5230\u4F4D\u6700\u5FEB\uFF1B\u5F00\u542F\u540E\u6BCF\u8F6E\u4F1A\u5148\u591A\u4E00\u6B21\u5224\u65AD\u8BF7\u6C42\uFF0C\u56DE\u7B54\u53D8\u6162\u4F46\u80FD\u8054\u7F51",
           settingsRelayFallback: "\u63A5\u53E3\u5931\u8D25\u65F6\u6539\u7528 DeepSeek \u5B98\u65B9\u515C\u5E95",
           settingsRelayFallbackHint: "\u9ED8\u8BA4\u5173\u95ED\uFF1A\u5931\u8D25\u5C31\u62A5\u9519\uFF0C\u4FDD\u8BC1\u56DE\u7B54\u4E00\u5B9A\u6765\u81EA\u4F60\u9009\u7684\u6A21\u578B\u3002\u5F00\u542F\u540E\u4F1A\u7528\u5B98\u65B9\u6A21\u578B\u5B8C\u6210\u5E76\u6CE8\u660E\u662F\u515C\u5E95\u56DE\u7B54",
           replyFallbackNotice: "\u26A0\uFE0F \u4F60\u7684\u5BF9\u8BDD\u63A5\u53E3\u8BF7\u6C42\u5931\u8D25\uFF0C\u672C\u8F6E\u56DE\u7B54\u7531 DeepSeek \u5B98\u65B9\u6A21\u578B\u515C\u5E95\u5B8C\u6210\uFF0C\u4E0D\u662F\u6240\u9009\u6A21\u578B\u751F\u6210\u3002",
           replyToolNotice: "\u26A0\uFE0F \u8054\u7F51\u68C0\u7D22\u6CA1\u6709\u5B8C\u6210\uFF0C\u4EE5\u4E0B\u56DE\u7B54\u672A\u4F7F\u7528\u641C\u7D22\u7ED3\u679C\u3002",
+          replyToolsOffNotice: "\u26A0\uFE0F \u5F53\u524D\u5BF9\u8BDD\u63A5\u53E3\u672A\u5F00\u542F\u300C\u81EA\u4E3B\u8054\u7F51\u300D\uFF0C\u672C\u8F6E\u6CA1\u6709\u8054\u7F51\u641C\u7D22\u7ED3\u679C\u3002\u9700\u8981\u8054\u7F51\u8BF7\u5728\u8BBE\u7F6E \u2192 \u6570\u636E\u7BA1\u7406\u6253\u5F00\u300C\u8BA9\u81EA\u5B9A\u4E49\u6A21\u578B\u81EA\u4E3B\u8054\u7F51\u300D\u3002",
           settingsChatApiKeyPlaceholder: "\u7559\u7A7A\u590D\u7528\u5B98\u65B9\u51ED\u636E",
           settingsAuthModeHint: "\u7528\u4E8E\u8054\u7F51\u641C\u7D22\u3001\u8BFB\u94FE\u63A5\u3001\u6717\u8BFB\u3001\u8BED\u97F3\u8BC6\u522B",
           settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740",
@@ -5459,7 +5471,12 @@ window.__ModuleLoader__.load({
                 let toolAttempted = false;
                 const lastMessage = messages[messages.length - 1];
                 const questionText = typeof lastMessage?.content === "string" ? lastMessage.content : Array.isArray(lastMessage?.content) ? lastMessage.content.filter((block) => block.type === "text").map((block) => block.text).join("\n") : "";
-                if (customChat && searchEnabled && !request2.prefix) {
+                if (customChat && searchEnabled && !useSettings2.getState().relayTools && !request2.prefix && !request2.history.length && !controller.signal.aborted) {
+                  reply = withNotice(reply, "replyToolsOffNotice");
+                  updateReply(sessionId2, reply);
+                  persist(sessionId2);
+                }
+                if (customChat && searchEnabled && useSettings2.getState().relayTools && !request2.prefix) {
                   try {
                     const phase = await runToolPhase({
                       question: questionText,
@@ -40364,7 +40381,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.6.1";
+        PLUGIN_VERSION = "1.6.2";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40439,7 +40456,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/components/settings/SettingsDialog.tsx
-    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, RelayFallbackSetting, ChatApiKeySetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
+    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, RelayToolsSetting, RelayFallbackSetting, ChatApiKeySetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
     var init_SettingsDialog = __esm({
       "vendor/chat-demo/src/components/settings/SettingsDialog.tsx"() {
         init_react_shim();
@@ -40510,7 +40527,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(RelayFallbackSetting, null), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(RelayToolsSetting, null), /* @__PURE__ */ React.createElement(RelayFallbackSetting, null), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t("deleteAllSessions"),
@@ -40691,6 +40708,28 @@ window.__ModuleLoader__.load({
                     { value: "max", label: t("settingsThinkingEffortMax") }
                   ],
                   onChange: setThinkingEffort
+                }
+              )
+            }
+          );
+        };
+        RelayToolsSetting = () => {
+          const t = useTranslate();
+          const relayTools = useSettings2((state) => state.relayTools);
+          return /* @__PURE__ */ React.createElement(
+            SettingCell,
+            {
+              label: t("settingsRelayTools"),
+              description: t("settingsRelayToolsHint"),
+              status: null,
+              action: /* @__PURE__ */ React.createElement(
+                "input",
+                {
+                  type: "checkbox",
+                  className: Settings_default.checkbox,
+                  checked: relayTools,
+                  "aria-label": t("settingsRelayTools"),
+                  onChange: (event) => setRelayTools(event.target.checked)
                 }
               )
             }

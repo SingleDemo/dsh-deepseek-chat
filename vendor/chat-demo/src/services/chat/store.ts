@@ -1113,7 +1113,20 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
               .map((block) => block.text)
               .join('\n')
             : ''
-        if (customChat && searchEnabled && !request.prefix) {
+        // 自定义接口 + 搜索开但没开「自主联网」：第一轮明确告诉用户本轮没联网。
+        if (
+          customChat &&
+          searchEnabled &&
+          !useSettings.getState().relayTools &&
+          !request.prefix &&
+          !request.history.length &&
+          !controller.signal.aborted
+        ) {
+          reply = withNotice(reply, 'replyToolsOffNotice')
+          updateReply(sessionId, reply)
+          persist(sessionId)
+        }
+        if (customChat && searchEnabled && useSettings.getState().relayTools && !request.prefix) {
           try {
             const phase = await runToolPhase({
               question: questionText,
