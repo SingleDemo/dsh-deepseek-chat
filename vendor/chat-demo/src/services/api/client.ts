@@ -275,6 +275,37 @@ export const officialComplete = async (
   )
   return (await response.json()) as Record<string, unknown>
 }
+/** 插件改动：让自定义模型给会话起标题的一次小请求。 */
+export const generateRelayTitle = async (
+  model: string,
+  question: string,
+  answer: string,
+  signal: AbortSignal
+): Promise<string | null> => {
+  try {
+    const payload = await chatComplete(
+      {
+        model,
+        system: '给下面这段对话起一个简短标题，最多 12 个字，只输出标题本身，不要引号、标点或解释。',
+        max_tokens: 64,
+        thinking: { type: 'disabled' },
+        messages: [{ role: 'user', content: `用户：${question.slice(0, 300)}\n助手：${answer.slice(0, 800)}` }],
+      },
+      signal
+    )
+    const content = Array.isArray(payload.content) ? payload.content : []
+    const text = content
+      .filter((block) => block && typeof block === 'object' && (block as Record<string, unknown>).type === 'text')
+      .map((block) => String((block as Record<string, unknown>).text ?? ''))
+      .join(' ')
+      .trim()
+      .replace(/^["'“”「」]+|["'“”「」]+$/g, '')
+      .replace(/\s+/g, ' ')
+    return text ? text.slice(0, 24) : null
+  } catch {
+    return null
+  }
+}
 /** 插件改动：向自定义对话接口发一次流式请求（带重试与 JSON 降级），供工具回环复用。 */
 export async function* streamChatCompletion(
   body: Record<string, unknown>,

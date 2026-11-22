@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
-import { ApiError, streamMessage, usesOfficialEndpoint } from '../api/client.js'
+import { ApiError, generateRelayTitle, streamMessage, usesOfficialEndpoint } from '../api/client.js'
 import { streamWithRelayTools } from '../api/relay-tools.js'
 import { runDirectTools } from './tools.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
@@ -1121,10 +1121,30 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           ? { model: TOOL_MODEL, extended: true, delegated: true }
           : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat)
         const requestKey = useOfficial ? (settings.apiKey ?? '') : (settings.chatApiKey || settings.apiKey || '')
+        // 自定义接口收不到 latest_reminder 角色，就把同样的信息放到最后一条用户消息里：
+        // 只影响本轮新内容，不改变前面的前缀，缓存命中不受影响。
+        const messagesForRequest = customChat
+          ? messages.map((message, index) => {
+            if (index !== messages.length - 1 || message.role !== 'user') return message
+            const prefix = `[当前：${latestReminder}]`
+            if (typeof message.content === 'string') {
+              return { ...message, content: `${prefix}\n${message.content}` }
+            }
+            if (Array.isArray(message.content)) {
+              return {
+                ...message,
+                content: message.content.map((block, blockIndex) =>
+                  blockIndex === 0 && block.type === 'text' ? { ...block, text: `${prefix}\n${block.text}` } : block
+                ),
+              }
+            }
+            return message
+          })
+          : messages
         const requestBody = {
             model: resolved.model,
             system: SYSTEM_PROMPT,
-            messages,
+            messages: messagesForRequest,
             // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
             ...(resolved.extended
               ? {
@@ -1178,6 +1198,18 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           }
         }
         reply = settleReply(reply, 'done', Date.now())
+        // 自定义接口收不到服务端生成的会话标题，用一次小请求补一个。
+        if (customChat && !getSession(sessionId)?.title && questionText) {
+          const answer = reply.blocks
+            .filter((block) => block.type === 'text' && !block.isTemplate)
+            .map((block) => (block as { text?: string }).text ?? '')
+            .join('\n')
+          void generateRelayTitle(resolved.model, questionText, answer, controller.signal).then((title) => {
+            if (title) {
+              updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
+            }
+          })
+        }
         break
       } catch (error) {
         if (controller.signal.aborted) {

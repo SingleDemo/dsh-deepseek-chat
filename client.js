@@ -1986,7 +1986,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, chatApiKey, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, chatApiKey, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, isRetryable, sleep, withRetry, inferenceOrigin, anthropicHeaders, authedRequest, chatComplete, generateRelayTitle, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -2136,6 +2136,42 @@ window.__ModuleLoader__.load({
               return once();
             }
             throw error;
+          }
+        };
+        chatComplete = async (body, signal) => {
+          const response = await withRetry(
+            () => request(`${apiBaseUrl()}/messages`, {
+              method: "POST",
+              headers: {
+                ...anthropicHeaders(chatApiKey(), false),
+                "content-type": "application/json",
+                accept: "application/json"
+              },
+              body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
+              signal
+            }),
+            signal
+          );
+          return await response.json();
+        };
+        generateRelayTitle = async (model, question, answer, signal) => {
+          try {
+            const payload = await chatComplete(
+              {
+                model,
+                system: "\u7ED9\u4E0B\u9762\u8FD9\u6BB5\u5BF9\u8BDD\u8D77\u4E00\u4E2A\u7B80\u77ED\u6807\u9898\uFF0C\u6700\u591A 12 \u4E2A\u5B57\uFF0C\u53EA\u8F93\u51FA\u6807\u9898\u672C\u8EAB\uFF0C\u4E0D\u8981\u5F15\u53F7\u3001\u6807\u70B9\u6216\u89E3\u91CA\u3002",
+                max_tokens: 64,
+                thinking: { type: "disabled" },
+                messages: [{ role: "user", content: `\u7528\u6237\uFF1A${question.slice(0, 300)}
+    \u52A9\u624B\uFF1A${answer.slice(0, 800)}` }]
+              },
+              signal
+            );
+            const content3 = Array.isArray(payload.content) ? payload.content : [];
+            const text9 = content3.filter((block) => block && typeof block === "object" && block.type === "text").map((block) => String(block.text ?? "")).join(" ").trim().replace(/^["'“”「」]+|["'“”「」]+$/g, "").replace(/\s+/g, " ");
+            return text9 ? text9.slice(0, 24) : null;
+          } catch {
+            return null;
           }
         };
         listModels = async (apiKey, signal) => {
@@ -5499,10 +5535,28 @@ window.__ModuleLoader__.load({
                 const useOfficial = officialFallback;
                 const resolved = useOfficial ? { model: TOOL_MODEL, extended: true, delegated: true } : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat);
                 const requestKey = useOfficial ? settings.apiKey ?? "" : settings.chatApiKey || settings.apiKey || "";
+                const messagesForRequest = customChat ? messages.map((message2, index2) => {
+                  if (index2 !== messages.length - 1 || message2.role !== "user") return message2;
+                  const prefix = `[\u5F53\u524D\uFF1A${latestReminder}]`;
+                  if (typeof message2.content === "string") {
+                    return { ...message2, content: `${prefix}
+    ${message2.content}` };
+                  }
+                  if (Array.isArray(message2.content)) {
+                    return {
+                      ...message2,
+                      content: message2.content.map(
+                        (block, blockIndex) => blockIndex === 0 && block.type === "text" ? { ...block, text: `${prefix}
+    ${block.text}` } : block
+                      )
+                    };
+                  }
+                  return message2;
+                }) : messages;
                 const requestBody = {
                   model: resolved.model,
                   system: SYSTEM_PROMPT,
-                  messages,
+                  messages: messagesForRequest,
                   // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
                   ...resolved.extended ? {
                     thinking: { type: initial.thinking ? "enabled" : "disabled" },
@@ -5539,6 +5593,14 @@ window.__ModuleLoader__.load({
                   }
                 }
                 reply = settleReply(reply, "done", Date.now());
+                if (customChat && !getSession(sessionId2)?.title && questionText) {
+                  const answer = reply.blocks.filter((block) => block.type === "text" && !block.isTemplate).map((block) => block.text ?? "").join("\n");
+                  void generateRelayTitle(resolved.model, questionText, answer, controller.signal).then((title) => {
+                    if (title) {
+                      updateSession(sessionId2, (session) => session.title ? session : { ...session, title });
+                    }
+                  });
+                }
                 break;
               } catch (error) {
                 if (controller.signal.aborted) {
@@ -40378,7 +40440,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.8.0";
+        PLUGIN_VERSION = "1.9.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
