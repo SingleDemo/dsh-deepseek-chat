@@ -212,6 +212,11 @@ const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string>
  * 手填 API Key 的路径与此前完全一致。
  */
 const authedRequest = async (url: string, init: RequestInit): Promise<Response> => {
+  // 自定义接口不附加账号 token：中转站的 CORS 预检只放行 Authorization，
+  // 带上 x-dsh-auth-token 会让浏览器直接拒绝整个请求（表现为「网络异常」）。
+  if (!usesOfficialEndpoint()) {
+    return request(url, init)
+  }
   const origin = inferenceOrigin()
   const once = async () => request(url, {
     ...init,
@@ -439,18 +444,24 @@ export async function* streamMessage(
           headers: {
             ...anthropicHeaders(apiKey, hasFile(body)),
             'Content-Type': 'application/json',
-            Accept: 'application/json',
+            Accept: 'text/event-stream, application/json',
           },
-          body: JSON.stringify({ ...body, messages, stream: false }),
+          body: JSON.stringify({ ...body, messages, stream: true }),
           signal,
         }),
       signal
     )
+    // 支持流式的中转站按事件逐块展示（含思考过程）；只回 JSON 的自动降级。
+    const contentType = plain.headers.get('Content-Type') ?? ''
+    if (contentType.includes('text/event-stream') && plain.body) {
+      yield* readEventStream(plain, signal)
+      return
+    }
     let payload: unknown
     try {
       payload = await plain.json()
     } catch {
-      throw new ApiError('protocol', `${new URL(`${apiBaseUrl()}/messages`).host} · 返回的不是 JSON，请检查对话接口地址`)
+      throw new ApiError('protocol', `${new URL(`${apiBaseUrl()}/messages`).host} · 返回的内容无法解析，请检查对话接口地址`)
     }
     for (const event of synthesizeEvents(payload)) {
       yield event

@@ -30,6 +30,7 @@ import {
   setAuthMode,
   setModel,
   setChatApiKey,
+  setRelayFallback,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -118,6 +119,7 @@ const SettingsContent = () => {
               <ApiKeyField editor={apiKeyEditor} />
               <ApiBaseUrlSetting />
               <ChatApiKeySetting />
+              <RelayFallbackSetting />
               <ModelSetting />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
@@ -324,6 +326,28 @@ const ThinkingEffortSetting = () => {
             { value: 'max', label: t('settingsThinkingEffortMax') },
           ]}
           onChange={setThinkingEffort}
+        />
+      }
+    />
+  )
+}
+
+/** 插件额外能力：自定义接口失败时是否用官方兜底（默认关，避免静默换模型）。 */
+const RelayFallbackSetting = () => {
+  const t = useTranslate()
+  const relayFallback = useSettings((state) => state.relayFallback)
+  return (
+    <SettingCell
+      label={t('settingsRelayFallback')}
+      description={t('settingsRelayFallbackHint')}
+      status={null}
+      action={
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          checked={relayFallback}
+          aria-label={t('settingsRelayFallback')}
+          onChange={(event) => setRelayFallback(event.target.checked)}
         />
       }
     />

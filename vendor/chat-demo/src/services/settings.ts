@@ -29,6 +29,8 @@ type Settings = {
   model: string
   /** 插件额外能力：对话接口单独的 Key（留空则用上面的官方凭据） */
   chatApiKey: string | null
+  /** 插件额外能力：自定义接口失败时是否改用 DeepSeek 官方兜底（默认关） */
+  relayFallback: boolean
 }
 
 const KEYS = {
@@ -45,6 +47,7 @@ const KEYS = {
   authMode: 'chat-demo:auth-mode',
   model: 'chat-demo:model',
   chatApiKey: 'chat-demo:chat-api-key',
+  relayFallback: 'chat-demo:relay-fallback',
 } as const
 
 const read = (key: string) => {
@@ -121,6 +124,7 @@ export const useSettings = create<Settings>(() => ({
   authMode: read(KEYS.authMode) === 'key' ? 'key' : 'account',
   model: read(KEYS.model) || 'deepseek-flash',
   chatApiKey: read(KEYS.chatApiKey) || null,
+  relayFallback: read(KEYS.relayFallback) === '1',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -177,6 +181,11 @@ export const setThinkingEffort = (thinkingEffort: ThinkingEffort) => {
 export const setAuthMode = (authMode: 'account' | 'key') => {
   write(KEYS.authMode, authMode)
   useSettings.setState({ authMode })
+}
+
+export const setRelayFallback = (relayFallback: boolean) => {
+  write(KEYS.relayFallback, relayFallback ? '1' : null)
+  useSettings.setState({ relayFallback })
 }
 
 export const setChatApiKey = (chatApiKey: string | null) => {

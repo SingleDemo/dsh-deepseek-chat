@@ -774,7 +774,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/settings.ts
-    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setChatApiKey, setModel;
+    var KEYS, read, write, isChineseBrowser, initialLocale, initialLocation, initialThemePreference, initialTtsVoice, useSettings2, setLocale, setLocation, setThemePreference, setTtsVoice, setApiKey, setThinking, setSearch, setSiderCollapsed, setApiBaseUrl, setThinkingEffort, setAuthMode, setRelayFallback, setChatApiKey, setModel;
     var init_settings = __esm({
       "vendor/chat-demo/src/services/settings.ts"() {
         init_react_shim();
@@ -793,7 +793,8 @@ window.__ModuleLoader__.load({
           thinkingEffort: "chat-demo:thinking-effort",
           authMode: "chat-demo:auth-mode",
           model: "chat-demo:model",
-          chatApiKey: "chat-demo:chat-api-key"
+          chatApiKey: "chat-demo:chat-api-key",
+          relayFallback: "chat-demo:relay-fallback"
         };
         read = (key) => {
           try {
@@ -849,7 +850,8 @@ window.__ModuleLoader__.load({
           thinkingEffort: read(KEYS.thinkingEffort) === "low" || read(KEYS.thinkingEffort) === "max" ? read(KEYS.thinkingEffort) : "high",
           authMode: read(KEYS.authMode) === "key" ? "key" : "account",
           model: read(KEYS.model) || "deepseek-flash",
-          chatApiKey: read(KEYS.chatApiKey) || null
+          chatApiKey: read(KEYS.chatApiKey) || null,
+          relayFallback: read(KEYS.relayFallback) === "1"
         }));
         setLocale = (locale) => {
           write(KEYS.locale, locale);
@@ -895,6 +897,10 @@ window.__ModuleLoader__.load({
         setAuthMode = (authMode) => {
           write(KEYS.authMode, authMode);
           useSettings2.setState({ authMode });
+        };
+        setRelayFallback = (relayFallback) => {
+          write(KEYS.relayFallback, relayFallback ? "1" : null);
+          useSettings2.setState({ relayFallback });
         };
         setChatApiKey = (chatApiKey2) => {
           const value = chatApiKey2 && chatApiKey2.trim() ? chatApiKey2.trim() : null;
@@ -1093,6 +1099,10 @@ window.__ModuleLoader__.load({
           settingsApiBaseUrlHint: "Used for plain chat; leave empty for DeepSeek, or paste a relay origin (its /v1 is added)",
           settingsChatApiKey: "Chat endpoint key",
           settingsChatApiKeyHint: "Key for the relay or self-hosted endpoint; required, because the account login only works with DeepSeek itself",
+          settingsRelayFallback: "Fall back to DeepSeek when the endpoint fails",
+          settingsRelayFallbackHint: "Off by default: a failure is reported, so every answer comes from your chosen model. When on, DeepSeek finishes the turn and the answer says so",
+          replyFallbackNotice: "\u26A0\uFE0F Your chat endpoint failed. This answer was produced by DeepSeek as a fallback, not by the selected model.",
+          replyToolNotice: "\u26A0\uFE0F Web search could not finish; this answer does not use search results.",
           settingsChatApiKeyPlaceholder: "Empty reuses the official credential",
           settingsAuthModeHint: "powers web search, link reading, read-aloud and speech input",
           settingsApiBaseUrlPlaceholder: "Leave empty to use the default",
@@ -1307,6 +1317,10 @@ window.__ModuleLoader__.load({
           settingsApiBaseUrlHint: "\u666E\u901A\u5BF9\u8BDD\u7528\uFF1B\u7559\u7A7A\u8D70\u5B98\u65B9 DeepSeek\uFF0C\u4E2D\u8F6C\u7AD9\u586B origin \u5373\u53EF\uFF08\u81EA\u52A8\u8865 /v1\uFF09",
           settingsChatApiKey: "\u5BF9\u8BDD\u63A5\u53E3 Key",
           settingsChatApiKeyHint: "\u4E2D\u8F6C\u7AD9/\u81EA\u5EFA\u63A5\u53E3\u7684 Key\uFF0C\u5FC5\u987B\u586B\uFF08\u8D26\u53F7\u767B\u5F55\u6001\u53EA\u5BF9 DeepSeek \u5B98\u65B9\u6709\u6548\uFF09",
+          settingsRelayFallback: "\u63A5\u53E3\u5931\u8D25\u65F6\u6539\u7528 DeepSeek \u5B98\u65B9\u515C\u5E95",
+          settingsRelayFallbackHint: "\u9ED8\u8BA4\u5173\u95ED\uFF1A\u5931\u8D25\u5C31\u62A5\u9519\uFF0C\u4FDD\u8BC1\u56DE\u7B54\u4E00\u5B9A\u6765\u81EA\u4F60\u9009\u7684\u6A21\u578B\u3002\u5F00\u542F\u540E\u4F1A\u7528\u5B98\u65B9\u6A21\u578B\u5B8C\u6210\u5E76\u6CE8\u660E\u662F\u515C\u5E95\u56DE\u7B54",
+          replyFallbackNotice: "\u26A0\uFE0F \u4F60\u7684\u5BF9\u8BDD\u63A5\u53E3\u8BF7\u6C42\u5931\u8D25\uFF0C\u672C\u8F6E\u56DE\u7B54\u7531 DeepSeek \u5B98\u65B9\u6A21\u578B\u515C\u5E95\u5B8C\u6210\uFF0C\u4E0D\u662F\u6240\u9009\u6A21\u578B\u751F\u6210\u3002",
+          replyToolNotice: "\u26A0\uFE0F \u8054\u7F51\u68C0\u7D22\u6CA1\u6709\u5B8C\u6210\uFF0C\u4EE5\u4E0B\u56DE\u7B54\u672A\u4F7F\u7528\u641C\u7D22\u7ED3\u679C\u3002",
           settingsChatApiKeyPlaceholder: "\u7559\u7A7A\u590D\u7528\u5B98\u65B9\u51ED\u636E",
           settingsAuthModeHint: "\u7528\u4E8E\u8054\u7F51\u641C\u7D22\u3001\u8BFB\u94FE\u63A5\u3001\u6717\u8BFB\u3001\u8BED\u97F3\u8BC6\u522B",
           settingsApiBaseUrlPlaceholder: "\u7559\u7A7A\u4F7F\u7528\u9ED8\u8BA4\u5730\u5740",
@@ -1834,18 +1848,23 @@ window.__ModuleLoader__.load({
             headers: {
               ...anthropicHeaders(apiKey, hasFile(body)),
               "Content-Type": "application/json",
-              Accept: "application/json"
+              Accept: "text/event-stream, application/json"
             },
-            body: JSON.stringify({ ...body, messages, stream: false }),
+            body: JSON.stringify({ ...body, messages, stream: true }),
             signal
           }),
           signal
         );
+        const contentType = plain.headers.get("Content-Type") ?? "";
+        if (contentType.includes("text/event-stream") && plain.body) {
+          yield* readEventStream(plain, signal);
+          return;
+        }
         let payload;
         try {
           payload = await plain.json();
         } catch {
-          throw new ApiError("protocol", `${new URL(`${apiBaseUrl()}/messages`).host} \xB7 \u8FD4\u56DE\u7684\u4E0D\u662F JSON\uFF0C\u8BF7\u68C0\u67E5\u5BF9\u8BDD\u63A5\u53E3\u5730\u5740`);
+          throw new ApiError("protocol", `${new URL(`${apiBaseUrl()}/messages`).host} \xB7 \u8FD4\u56DE\u7684\u5185\u5BB9\u65E0\u6CD5\u89E3\u6790\uFF0C\u8BF7\u68C0\u67E5\u5BF9\u8BDD\u63A5\u53E3\u5730\u5740`);
         }
         for (const event of synthesizeEvents(payload)) {
           yield event;
@@ -2029,6 +2048,9 @@ window.__ModuleLoader__.load({
           };
         };
         authedRequest = async (url, init) => {
+          if (!usesOfficialEndpoint()) {
+            return request(url, init);
+          }
           const origin = inferenceOrigin();
           const once = async () => request(url, {
             ...init,
@@ -4520,7 +4542,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/chat/store.ts
-    var MODEL, TOOL_MODEL, isDeepSeekModel, resolveRequestModel, SYSTEM_PROMPT, NEUTRAL_SYSTEM_PROMPT, SESSION_CACHE_LIMIT, SAFETY_CHECK, FILE_RETRY_LIMIT, FILE_RETRY_BASE_DELAY, serverTools, titleRequests, useChatStore, get, set, sortSessions, getSession, getStreamController, sameSummary, sessionAccess, unsavedSessions, pendingFiles, deletingSessions, deletionTasks, streamFlushes, accessSequence, historyEpoch, initTask, sessionLoads, touchSession, trimSessionCache, updateSession, updateReply, persist, retrySaveSessions, bindChatPersistence, createReply, settleInterrupted, initChat, ensureSessionLoaded, waitForIdle, replaceHistory, mergeHistory, newChat, selectSession, renameSession2, removeSession, removeSessionData, stopReply, sendMessage, regenerateReply, editMessage, selectMessageVersion, continueReply, retryUpload, saveServerIds, ensureServerId, refreshRequest, prepareFiles, collectServerFileIds, reuploadInvalidatedFiles, waitForRetry, streamReply;
+    var MODEL, TOOL_MODEL, isDeepSeekModel, resolveRequestModel, SYSTEM_PROMPT, NEUTRAL_SYSTEM_PROMPT, SESSION_CACHE_LIMIT, SAFETY_CHECK, FILE_RETRY_LIMIT, FILE_RETRY_BASE_DELAY, serverTools, titleRequests, useChatStore, get, set, sortSessions, getSession, getStreamController, sameSummary, sessionAccess, unsavedSessions, pendingFiles, deletingSessions, deletionTasks, streamFlushes, accessSequence, historyEpoch, initTask, sessionLoads, touchSession, trimSessionCache, updateSession, updateReply, persist, retrySaveSessions, bindChatPersistence, withNotice, createReply, settleInterrupted, initChat, ensureSessionLoaded, waitForIdle, replaceHistory, mergeHistory, newChat, selectSession, renameSession2, removeSession, removeSessionData, stopReply, sendMessage, regenerateReply, editMessage, selectMessageVersion, continueReply, retryUpload, saveServerIds, ensureServerId, refreshRequest, prepareFiles, collectServerFileIds, reuploadInvalidatedFiles, waitForRetry, streamReply;
     var init_store = __esm({
       "vendor/chat-demo/src/services/chat/store.ts"() {
         init_react_shim();
@@ -4531,6 +4553,7 @@ window.__ModuleLoader__.load({
         init_errors();
         init_attachments();
         init_settings();
+        init_i18n();
         init_branches();
         init_db();
         init_drafts();
@@ -4712,6 +4735,13 @@ window.__ModuleLoader__.load({
             window.removeEventListener("pagehide", save);
           };
         };
+        withNotice = (reply, key) => ({
+          ...reply,
+          blocks: [
+            { type: "text", text: translate(key), isTemplate: true },
+            ...reply.blocks
+          ]
+        });
         createReply = () => {
           const { thinking, search: search2, model: preferred } = useSettings2.getState();
           return {
@@ -5415,9 +5445,14 @@ window.__ModuleLoader__.load({
                       }
                     }
                   } catch {
+                    if (!controller.signal.aborted) {
+                      reply = withNotice(reply, "replyToolNotice");
+                      updateReply(sessionId2, reply);
+                      persist(sessionId2);
+                    }
                   }
                 }
-                const useOfficial = officialFallback || customChat && searchEnabled && !toolAttempted;
+                const useOfficial = officialFallback;
                 const resolved = useOfficial ? { model: TOOL_MODEL, extended: true, delegated: true } : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat);
                 const requestKey = useOfficial ? settings.apiKey ?? "" : settings.chatApiKey || settings.apiKey || "";
                 const events = streamMessage(
@@ -5481,8 +5516,11 @@ window.__ModuleLoader__.load({
                   }
                   continue;
                 }
-                if (!officialFallback && customChatTurn && attempt < 1 && !receivedContent && error instanceof ApiError && (error.kind === "network" || error.kind === "protocol")) {
+                if (!officialFallback && customChatTurn && useSettings2.getState().relayFallback && attempt < 1 && !receivedContent && error instanceof ApiError && (error.kind === "network" || error.kind === "protocol")) {
                   officialFallback = true;
+                  reply = withNotice(reply, "replyFallbackNotice");
+                  updateReply(sessionId2, reply);
+                  persist(sessionId2);
                   continue;
                 }
                 if (error instanceof ApiError && error.kind === "interrupted" && reply.stopReason) {
@@ -40294,7 +40332,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.5.2";
+        PLUGIN_VERSION = "1.5.3";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40369,7 +40407,7 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/components/settings/SettingsDialog.tsx
-    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, ChatApiKeySetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
+    var import_react34, cx, SettingsDialog, sections, SettingsContent, DeleteAllConfirm, useHistoryDelete, LocationSetting, LocaleSetting, ThinkingEffortSetting, RelayFallbackSetting, ChatApiKeySetting, ApiBaseUrlSetting, TtsVoiceSetting, ModelSetting, VersionSetting, AuthModeSetting, ImportConfirm, themeOptions, ThemeSetting, errorStatus, SettingCell, useHistoryImport, ImportHistory, ExportHistory;
     var init_SettingsDialog = __esm({
       "vendor/chat-demo/src/components/settings/SettingsDialog.tsx"() {
         init_react_shim();
@@ -40440,7 +40478,7 @@ window.__ModuleLoader__.load({
               item.icon,
               t(item.label)
             ))),
-            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
+            /* @__PURE__ */ React.createElement("div", { role: "tabpanel", className: Settings_default.content }, section === "general" ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ThemeSetting, null), /* @__PURE__ */ React.createElement(LocaleSetting, null), /* @__PURE__ */ React.createElement(TtsVoiceSetting, null), /* @__PURE__ */ React.createElement(ThinkingEffortSetting, null), /* @__PURE__ */ React.createElement(LocationSetting, null), /* @__PURE__ */ React.createElement(VersionSetting, null)) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(AuthModeSetting, null), /* @__PURE__ */ React.createElement(ApiKeyField, { editor: apiKeyEditor }), /* @__PURE__ */ React.createElement(ApiBaseUrlSetting, null), /* @__PURE__ */ React.createElement(ChatApiKeySetting, null), /* @__PURE__ */ React.createElement(RelayFallbackSetting, null), /* @__PURE__ */ React.createElement(ModelSetting, null), /* @__PURE__ */ React.createElement(ImportHistory, { historyImport, disabled: historyBusy }), /* @__PURE__ */ React.createElement(ExportHistory, { disabled: historyBusy }), /* @__PURE__ */ React.createElement(
               SettingCell,
               {
                 label: t("deleteAllSessions"),
@@ -40621,6 +40659,28 @@ window.__ModuleLoader__.load({
                     { value: "max", label: t("settingsThinkingEffortMax") }
                   ],
                   onChange: setThinkingEffort
+                }
+              )
+            }
+          );
+        };
+        RelayFallbackSetting = () => {
+          const t = useTranslate();
+          const relayFallback = useSettings2((state) => state.relayFallback);
+          return /* @__PURE__ */ React.createElement(
+            SettingCell,
+            {
+              label: t("settingsRelayFallback"),
+              description: t("settingsRelayFallbackHint"),
+              status: null,
+              action: /* @__PURE__ */ React.createElement(
+                "input",
+                {
+                  type: "checkbox",
+                  className: Settings_default.checkbox,
+                  checked: relayFallback,
+                  "aria-label": t("settingsRelayFallback"),
+                  onChange: (event) => setRelayFallback(event.target.checked)
                 }
               )
             }

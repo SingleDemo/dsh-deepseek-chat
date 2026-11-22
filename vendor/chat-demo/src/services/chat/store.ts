@@ -6,6 +6,8 @@ import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { useSettings } from '../settings.js'
+import { translate } from '../../i18n/index.js'
+import type { TranslationKey } from '../../i18n/index.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
 import {
@@ -283,6 +285,14 @@ export const bindChatPersistence = () => {
   }
 }
 
+/** 插件改动：在回复前插入一条说明块，让用户知道这一轮发生了什么。 */
+const withNotice = (reply: AssistantMessage, key: TranslationKey): AssistantMessage => ({
+  ...reply,
+  blocks: [
+    { type: 'text', text: translate(key), isTemplate: true },
+    ...reply.blocks,
+  ],
+})
 /** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
 const createReply = (): AssistantMessage => {
   const { thinking, search, model: preferred } = useSettings.getState()
@@ -1120,10 +1130,17 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
               }
             }
           } catch {
-            // 工具阶段失败（超时、模型不支持工具、接口异常）就按普通对话发送
+            // 工具阶段失败（超时、模型不支持工具、接口异常）就按普通对话发送，
+            // 但要让用户知道这一轮没有联网。
+            if (!controller.signal.aborted) {
+              reply = withNotice(reply, 'replyToolNotice')
+              updateReply(sessionId, reply)
+              persist(sessionId)
+            }
           }
         }
-        const useOfficial = officialFallback || (customChat && searchEnabled && !toolAttempted)
+        // 只有用户显式开启「官方兜底」时才换模型；否则一律用用户配置的模型。
+        const useOfficial = officialFallback
         const resolved = useOfficial
           ? { model: TOOL_MODEL, extended: true, delegated: true }
           : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat)
@@ -1205,16 +1222,20 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           }
           continue
         }
-        // 自定义接口在传输层失败时，改用 DeepSeek 官方再试一次，避免整轮失败。
+        // 传输层失败只有在用户开启「官方兜底」时才切换，并先说明这一轮不是原模型。
         if (
           !officialFallback &&
           customChatTurn &&
+          useSettings.getState().relayFallback &&
           attempt < 1 &&
           !receivedContent &&
           error instanceof ApiError &&
           (error.kind === 'network' || error.kind === 'protocol')
         ) {
           officialFallback = true
+          reply = withNotice(reply, 'replyFallbackNotice')
+          updateReply(sessionId, reply)
+          persist(sessionId)
           continue
         }
         if (error instanceof ApiError && error.kind === 'interrupted' && reply.stopReason) {
