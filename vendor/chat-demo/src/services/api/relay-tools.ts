@@ -266,9 +266,24 @@ export async function* streamWithRelayTools(
       name: call.name,
       input: call.input,
     }))
+    // 输出被 token 上限截断时，工具参数可能不完整：不执行，回填错误让模型重发。
+    const truncated = stopReason === 'length'
+    const batch = calls.slice(0, 3)
+    const runs = truncated
+      ? batch.map(() => ({
+        blocks: [] as ReplyBlock[],
+        result: '工具调用因输出长度被截断，参数可能不完整。请不要执行，改用更短的参数重新调用。',
+      }))
+      : await Promise.all(
+        batch.map((call) => executeRelayTool(call.name, call.input, signal, fallback).catch(() => ({
+          blocks: [] as ReplyBlock[],
+          result: '工具执行失败，请基于已有信息回答并说明无法联网。',
+        })))
+      )
     const resultContent: unknown[] = []
-    for (const call of calls.slice(0, 3)) {
-      const run = await executeRelayTool(call.name, call.input, signal, fallback)
+    for (let i = 0; i < batch.length; i += 1) {
+      const call = batch[i]
+      const run = runs[i]
       for (const block of run.blocks) {
         yield { type: 'content_block_start', index: offset++, content_block: block } as unknown as MessageStreamEvent
         yield { type: 'content_block_stop', index: offset - 1 } as unknown as MessageStreamEvent

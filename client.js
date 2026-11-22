@@ -2298,9 +2298,21 @@ window.__ModuleLoader__.load({
           name: call.name,
           input: call.input
         }));
+        const truncated = stopReason === "length";
+        const batch = calls.slice(0, 3);
+        const runs = truncated ? batch.map(() => ({
+          blocks: [],
+          result: "\u5DE5\u5177\u8C03\u7528\u56E0\u8F93\u51FA\u957F\u5EA6\u88AB\u622A\u65AD\uFF0C\u53C2\u6570\u53EF\u80FD\u4E0D\u5B8C\u6574\u3002\u8BF7\u4E0D\u8981\u6267\u884C\uFF0C\u6539\u7528\u66F4\u77ED\u7684\u53C2\u6570\u91CD\u65B0\u8C03\u7528\u3002"
+        })) : await Promise.all(
+          batch.map((call) => executeRelayTool(call.name, call.input, signal, fallback).catch(() => ({
+            blocks: [],
+            result: "\u5DE5\u5177\u6267\u884C\u5931\u8D25\uFF0C\u8BF7\u57FA\u4E8E\u5DF2\u6709\u4FE1\u606F\u56DE\u7B54\u5E76\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002"
+          })))
+        );
         const resultContent = [];
-        for (const call of calls.slice(0, 3)) {
-          const run = await executeRelayTool(call.name, call.input, signal, fallback);
+        for (let i = 0; i < batch.length; i += 1) {
+          const call = batch[i];
+          const run = runs[i];
           for (const block of run.blocks) {
             yield { type: "content_block_start", index: offset++, content_block: block };
             yield { type: "content_block_stop", index: offset - 1 };
@@ -40446,7 +40458,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.9.1";
+        PLUGIN_VERSION = "1.10.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
