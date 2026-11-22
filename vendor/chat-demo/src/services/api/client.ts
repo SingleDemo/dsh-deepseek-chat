@@ -179,6 +179,40 @@ const authedRequest = async (url: string, init: RequestInit): Promise<Response> 
   }
 }
 
+/**
+ * 插件改动：工具阶段用的非流式请求。
+ * chatComplete 走当前对话接口，officialComplete 走 DeepSeek 官方。
+ */
+export const chatComplete = async (
+  body: Record<string, unknown>,
+  signal: AbortSignal
+): Promise<Record<string, unknown>> => {
+  const response = await request(`${apiBaseUrl()}/messages`, {
+    method: 'POST',
+    headers: {
+      ...anthropicHeaders(chatApiKey(), false),
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
+    signal,
+  })
+  return (await response.json()) as Record<string, unknown>
+}
+
+export const officialComplete = async (
+  body: Record<string, unknown>,
+  signal: AbortSignal
+): Promise<Record<string, unknown>> => {
+  const endpoint = await officialEndpoint()
+  const response = await request(`${endpoint.base}/messages`, {
+    method: 'POST',
+    headers: { ...endpoint.headers, 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ stream: false, ...body }),
+    signal,
+  })
+  return (await response.json()) as Record<string, unknown>
+}
 /** 一个可选模型；字段取服务端 listing，缺失即省略。 */
 export type ModelInfo = {
   id: string

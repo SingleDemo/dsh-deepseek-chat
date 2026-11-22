@@ -132,6 +132,20 @@ web search, link reading, thinking timeline, the thinking-effort picker — stay
 the official endpoint; on a relay they are not sent. Model ids come from that
 gateway's `/v1/models` list, so pick or type one it actually serves.
 
+## Model-driven web tools on a relay
+
+With a custom chat endpoint and smart search on, the relay model decides for
+itself whether to go online: the plugin sends it a client-side `web_search` /
+`read_url` tool declaration, it answers with `tool_use`, DeepSeek then runs the
+actual search or page read (server tools, official credential), and the results
+are handed back to the relay model as reference material for the answer. The tool
+steps and the source list appear in the reply like the official ones. When the
+model decides not to search, the turn stays a plain chat with no extra cost.
+Every step is time-boxed; if anything fails the turn falls back to DeepSeek.
+
+Verified live with `deepseek-v4.1-flash-1017` on api.tu-zi.com: one decision call,
+two official searches, then the answer from the relay model with 16 sources.
+
 ## Model selection
 
 **设置 → 通用设置 → 模型** lists what `GET /models` reports for your credential and

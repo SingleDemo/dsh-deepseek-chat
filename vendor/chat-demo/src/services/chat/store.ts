@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage, usesOfficialEndpoint } from '../api/client.js'
+import { runToolPhase } from './tools.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
@@ -1085,7 +1086,41 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const searchEnabled = initial.search ?? false
         // 配了独立的对话接口时，普通对话走它；搜索/读链接那一轮仍走 DeepSeek 官方。
         const customChat = Boolean((settings.apiBaseUrl ?? '').trim() || (settings.chatApiKey ?? '').trim())
-        const useOfficial = customChat && searchEnabled
+        // 插件改动：自定义接口 + 智能搜索时，先让自定义模型决定是否联网，
+        // 搜索/读链接由官方执行，结果作为资料注入本轮回答。
+        let toolContext = ''
+        let toolAttempted = false
+        // 本轮问题的纯文本：请求里的 user 内容可能是块数组。
+        const lastMessage = messages[messages.length - 1]
+        const questionText = typeof lastMessage?.content === 'string'
+          ? lastMessage.content
+          : Array.isArray(lastMessage?.content)
+            ? lastMessage.content
+              .filter((block) => block.type === 'text')
+              .map((block) => block.text)
+              .join('\n')
+            : ''
+        if (customChat && searchEnabled && !request.prefix) {
+          try {
+            const phase = await runToolPhase({
+              question: questionText,
+              model: requestedModel,
+              signal: controller.signal,
+            })
+            toolAttempted = true
+            if (phase && !controller.signal.aborted) {
+              toolContext = phase.context
+              if (phase.blocks.length) {
+                reply = { ...reply, blocks: [...phase.blocks, ...reply.blocks] }
+                updateReply(sessionId, reply)
+                persist(sessionId)
+              }
+            }
+          } catch {
+            // 工具阶段失败（超时、模型不支持工具、接口异常）就按普通对话发送
+          }
+        }
+        const useOfficial = customChat && searchEnabled && !toolAttempted
         const resolved = useOfficial
           ? { model: TOOL_MODEL, extended: true, delegated: true }
           : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat)
@@ -1094,7 +1129,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           requestKey,
           {
             model: resolved.model,
-            system: isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT,
+            system: (isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT) + toolContext,
             messages,
             // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
             ...(resolved.extended

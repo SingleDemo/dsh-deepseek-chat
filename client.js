@@ -896,8 +896,8 @@ window.__ModuleLoader__.load({
           write(KEYS.authMode, authMode);
           useSettings2.setState({ authMode });
         };
-        setChatApiKey = (chatApiKey) => {
-          const value = chatApiKey && chatApiKey.trim() ? chatApiKey.trim() : null;
+        setChatApiKey = (chatApiKey2) => {
+          const value = chatApiKey2 && chatApiKey2.trim() ? chatApiKey2.trim() : null;
           write(KEYS.chatApiKey, value);
           useSettings2.setState({ chatApiKey: value });
         };
@@ -1886,7 +1886,7 @@ window.__ModuleLoader__.load({
       }
       throw new ApiError("interrupted", "");
     }
-    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
+    var API_ORIGIN, OFFICIAL_ORIGIN, resolveBase, apiBaseUrl, chatApiKey, officialEndpoint, modelsUrl, usesOfficialEndpoint, FILES_BETA, ApiError, isErrorBody, readErrorResponse, request, inferenceOrigin, anthropicHeaders, authedRequest, chatComplete, officialComplete, listModels, verifyApiKey, uploadFile, hasFile, synthesizeEvents;
     var init_client = __esm({
       "vendor/chat-demo/src/services/api/client.ts"() {
         init_react_shim();
@@ -1906,6 +1906,10 @@ window.__ModuleLoader__.load({
           return /^https?:\/\/api\.deepseek\.com$/i.test(trimmed) ? `${trimmed}/anthropic/v1` : `${trimmed}/v1`;
         };
         apiBaseUrl = () => resolveBase(useSettings2.getState().apiBaseUrl);
+        chatApiKey = () => {
+          const settings = useSettings2.getState();
+          return settings.chatApiKey || settings.apiKey || "";
+        };
         officialEndpoint = async () => {
           if (usesAccountAuth()) {
             const account = await accountAuthHeaders(OFFICIAL_ORIGIN);
@@ -1996,6 +2000,29 @@ window.__ModuleLoader__.load({
             throw error;
           }
         };
+        chatComplete = async (body, signal) => {
+          const response = await request(`${apiBaseUrl()}/messages`, {
+            method: "POST",
+            headers: {
+              ...anthropicHeaders(chatApiKey(), false),
+              "content-type": "application/json",
+              accept: "application/json"
+            },
+            body: JSON.stringify({ stream: false, max_tokens: 2048, ...body }),
+            signal
+          });
+          return await response.json();
+        };
+        officialComplete = async (body, signal) => {
+          const endpoint = await officialEndpoint();
+          const response = await request(`${endpoint.base}/messages`, {
+            method: "POST",
+            headers: { ...endpoint.headers, "content-type": "application/json", accept: "application/json" },
+            body: JSON.stringify({ stream: false, ...body }),
+            signal
+          });
+          return await response.json();
+        };
         listModels = async (apiKey, signal) => {
           const settings = useSettings2.getState();
           const chatKey = settings.chatApiKey || apiKey;
@@ -2072,6 +2099,189 @@ window.__ModuleLoader__.load({
           events.push({ type: "message_delta", delta: { stop_reason: stopReason } });
           events.push({ type: "message_stop" });
           return events;
+        };
+      }
+    });
+    
+    // vendor/chat-demo/src/services/chat/tools.ts
+    var CLIENT_TOOLS, DECIDE_SYSTEM, randomHex, toolUseId, withTimeout, decide, executeSearch, executeRead, runToolPhase;
+    var init_tools = __esm({
+      "vendor/chat-demo/src/services/chat/tools.ts"() {
+        init_react_shim();
+        init_client();
+        CLIENT_TOOLS = [
+          {
+            name: "web_search",
+            description: "Search the web for current information. Use it when the question needs fresh news, prices, or anything after your training data.",
+            input_schema: {
+              type: "object",
+              properties: { query: { type: "string", description: "search keywords" } },
+              required: ["query"]
+            }
+          },
+          {
+            name: "read_url",
+            description: "Read a web page the user linked and use its content when the answer depends on it.",
+            input_schema: {
+              type: "object",
+              properties: { url: { type: "string", description: "absolute http(s) url" } },
+              required: ["url"]
+            }
+          }
+        ];
+        DECIDE_SYSTEM = "You can call web_search and read_url. Call a tool only when the answer needs live information or the content of a link the user gave; otherwise answer directly.";
+        randomHex = () => {
+          const bytes = new Uint8Array(8);
+          crypto.getRandomValues(bytes);
+          return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+        };
+        toolUseId = (kind) => `srvtoolu_${kind}_${randomHex()}`;
+        withTimeout = (signal, ms) => {
+          try {
+            return AbortSignal.any([signal, AbortSignal.timeout(ms)]);
+          } catch {
+            return signal;
+          }
+        };
+        decide = async (question, model, signal) => {
+          const payload = await chatComplete(
+            {
+              model,
+              system: DECIDE_SYSTEM,
+              max_tokens: 512,
+              thinking: { type: "disabled" },
+              messages: [{ role: "user", content: question }],
+              tools: CLIENT_TOOLS,
+              tool_choice: { type: "auto" }
+            },
+            withTimeout(signal, 45e3)
+          );
+          const content3 = Array.isArray(payload.content) ? payload.content : [];
+          const calls = [];
+          for (const block of content3) {
+            if (!block || typeof block !== "object") continue;
+            const item = block;
+            if (item.type !== "tool_use" || typeof item.name !== "string") continue;
+            const input = item.input && typeof item.input === "object" ? item.input : {};
+            if (item.name === "web_search" && typeof input.query === "string" && input.query.trim()) {
+              calls.push({ kind: "search", query: input.query.trim() });
+            }
+            if (item.name === "read_url" && typeof input.url === "string" && /^https?:\/\//i.test(input.url.trim())) {
+              calls.push({ kind: "read", url: input.url.trim() });
+            }
+            if (calls.length >= 3) break;
+          }
+          return calls;
+        };
+        executeSearch = async (query3, signal) => {
+          const payload = await officialComplete(
+            {
+              model: "deepseek-flash",
+              max_tokens: 1024,
+              thinking: { type: "disabled" },
+              messages: [{ role: "user", content: query3 }],
+              tools: [{ type: "deepseek_web_search", name: "deepseek_web_search" }],
+              safety_check: { level: "high" }
+            },
+            withTimeout(signal, 6e4)
+          );
+          const blocks = Array.isArray(payload.content) ? payload.content : [];
+          const sources = [];
+          for (const block of blocks) {
+            if (!block || typeof block !== "object") continue;
+            const item = block;
+            if (item.type !== "web_search_tool_result" || !Array.isArray(item.content)) continue;
+            for (const entry of item.content) {
+              if (entry && typeof entry === "object" && entry.type === "web_search_result") {
+                sources.push(entry);
+              }
+            }
+          }
+          const text9 = sources.slice(0, 6).map((source, index2) => `[${index2 + 1}] ${source.title} ${source.url}
+    ${source.snippet ?? ""}`.trim()).join("\n");
+          return { sources, text: text9 };
+        };
+        executeRead = async (url, signal) => {
+          const payload = await officialComplete(
+            {
+              model: "deepseek-flash",
+              max_tokens: 1600,
+              thinking: { type: "disabled" },
+              messages: [{ role: "user", content: `\u8BF7\u9605\u8BFB\u8FD9\u4E2A\u7F51\u9875\u5E76\u63D0\u53D6\u4E0E\u95EE\u9898\u6709\u5173\u7684\u8981\u70B9\uFF1A${url}` }],
+              tools: [{ type: "deepseek_read_url", name: "deepseek_read_url" }],
+              safety_check: { level: "high" }
+            },
+            withTimeout(signal, 6e4)
+          );
+          const blocks = Array.isArray(payload.content) ? payload.content : [];
+          const text9 = blocks.filter((block) => block && typeof block === "object" && block.type === "text").map((block) => String(block.text ?? "")).join("\n").slice(0, 4e3);
+          return { text: text9 };
+        };
+        runToolPhase = async (input) => {
+          if (!input.question.trim()) return null;
+          const calls = await decide(input.question, input.model, input.signal);
+          if (!calls.length) return null;
+          const blocks = [];
+          const parts = [];
+          let searches = 0;
+          let reads = 0;
+          for (const call of calls) {
+            if (input.signal.aborted) break;
+            if (call.kind === "search") {
+              const id2 = toolUseId("s");
+              const { sources, text: text10 } = await executeSearch(call.query, input.signal);
+              const use2 = {
+                type: "server_tool_use",
+                id: id2,
+                name: "deepseek_web_search",
+                input: { action: "search", queries: [call.query] },
+                caller: { type: "direct" },
+                kind: "search"
+              };
+              const result2 = {
+                type: "web_search_tool_result",
+                tool_use_id: id2,
+                content: sources,
+                kind: "search"
+              };
+              blocks.push(use2, result2);
+              searches += 1;
+              if (text10) parts.push(`\u641C\u7D22\u300C${call.query}\u300D\u7684\u7ED3\u679C\uFF1A
+    ${text10}`);
+              continue;
+            }
+            const id = toolUseId("rl");
+            const { text: text9 } = await executeRead(call.url, input.signal);
+            const use = {
+              type: "server_tool_use",
+              id,
+              name: "deepseek_read_url",
+              input: { action: "read_link", url: call.url },
+              caller: { type: "direct" },
+              kind: "read_link"
+            };
+            const result = {
+              type: "web_fetch_tool_result",
+              tool_use_id: id,
+              content: {
+                type: "web_fetch_result",
+                url: call.url,
+                content: { type: "document", source: { type: "text", media_type: "text/plain", data: "" }, title: null },
+                published_at: null
+              },
+              kind: "read_link"
+            };
+            blocks.push(use, result);
+            reads += 1;
+            if (text9) parts.push(`\u94FE\u63A5 ${call.url} \u7684\u5185\u5BB9\u8981\u70B9\uFF1A
+    ${text9}`);
+          }
+          if (!blocks.length) return null;
+          const context = parts.length ? `
+    
+    \u4EE5\u4E0B\u662F\u521A\u521A\u8054\u7F51\u53D6\u5F97\u7684\u8D44\u6599\uFF0C\u56DE\u7B54\u65F6\u53EF\u76F4\u63A5\u4F7F\u7528\uFF1B\u4E0D\u8981\u58F0\u79F0\u65E0\u6CD5\u8054\u7F51\uFF1A
+    ${parts.join("\n\n")}` : "";
+          return { blocks, context, searches, reads };
         };
       }
     });
@@ -4264,6 +4474,7 @@ window.__ModuleLoader__.load({
         init_esm();
         init_id();
         init_client();
+        init_tools();
         init_errors();
         init_attachments();
         init_settings();
@@ -5127,14 +5338,37 @@ window.__ModuleLoader__.load({
                 const requestedModel = initial.model ?? settings.model ?? MODEL;
                 const searchEnabled = initial.search ?? false;
                 const customChat = Boolean((settings.apiBaseUrl ?? "").trim() || (settings.chatApiKey ?? "").trim());
-                const useOfficial = customChat && searchEnabled;
+                let toolContext = "";
+                let toolAttempted = false;
+                const lastMessage = messages[messages.length - 1];
+                const questionText = typeof lastMessage?.content === "string" ? lastMessage.content : Array.isArray(lastMessage?.content) ? lastMessage.content.filter((block) => block.type === "text").map((block) => block.text).join("\n") : "";
+                if (customChat && searchEnabled && !request2.prefix) {
+                  try {
+                    const phase = await runToolPhase({
+                      question: questionText,
+                      model: requestedModel,
+                      signal: controller.signal
+                    });
+                    toolAttempted = true;
+                    if (phase && !controller.signal.aborted) {
+                      toolContext = phase.context;
+                      if (phase.blocks.length) {
+                        reply = { ...reply, blocks: [...phase.blocks, ...reply.blocks] };
+                        updateReply(sessionId2, reply);
+                        persist(sessionId2);
+                      }
+                    }
+                  } catch {
+                  }
+                }
+                const useOfficial = customChat && searchEnabled && !toolAttempted;
                 const resolved = useOfficial ? { model: TOOL_MODEL, extended: true, delegated: true } : resolveRequestModel(requestedModel, searchEnabled, usesOfficialEndpoint() && !customChat);
                 const requestKey = useOfficial ? settings.apiKey ?? "" : settings.chatApiKey || settings.apiKey || "";
                 const events = streamMessage(
                   requestKey,
                   {
                     model: resolved.model,
-                    system: isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT,
+                    system: (isDeepSeekModel(resolved.model) ? SYSTEM_PROMPT : NEUTRAL_SYSTEM_PROMPT) + toolContext,
                     messages,
                     // 扩展字段只发给 DeepSeek；自定义端点/模型走最小但合法的 Messages 请求。
                     ...resolved.extended ? {
@@ -39010,9 +39244,9 @@ window.__ModuleLoader__.load({
           },
           ...result ? [result] : []
         ];
-        fetchResult = (toolUseId, content3) => ({
+        fetchResult = (toolUseId2, content3) => ({
           type: "web_fetch_tool_result",
-          tool_use_id: toolUseId,
+          tool_use_id: toolUseId2,
           kind: "deep_search",
           content: content3
         });
@@ -40000,7 +40234,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.4.4";
+        PLUGIN_VERSION = "1.5.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40334,9 +40568,9 @@ window.__ModuleLoader__.load({
         };
         ChatApiKeySetting = () => {
           const t = useTranslate();
-          const chatApiKey = useSettings2((state) => state.chatApiKey);
-          const [draft, setDraft] = (0, import_react34.useState)(chatApiKey ?? "");
-          (0, import_react34.useEffect)(() => setDraft(chatApiKey ?? ""), [chatApiKey]);
+          const chatApiKey2 = useSettings2((state) => state.chatApiKey);
+          const [draft, setDraft] = (0, import_react34.useState)(chatApiKey2 ?? "");
+          (0, import_react34.useEffect)(() => setDraft(chatApiKey2 ?? ""), [chatApiKey2]);
           const commit = () => setChatApiKey(draft.trim() || null);
           return /* @__PURE__ */ React.createElement(
             SettingCell,
