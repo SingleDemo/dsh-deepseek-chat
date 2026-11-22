@@ -27,6 +27,18 @@
       },
       "versions": [
         {
+          "version": "1.4.1",
+          "publishTimestamp": 1795322347,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/SingleDemo/dsh-deepseek-chat",
+            "commit": "b09a05aa421235f46c90f9fca9b032a628253d1e"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.3 <0.3.0"
+          }
+        },
+        {
           "version": "1.4.0",
           "publishTimestamp": 1795321630,
           "source": {
