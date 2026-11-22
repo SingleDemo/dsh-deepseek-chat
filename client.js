@@ -1991,10 +1991,12 @@ window.__ModuleLoader__.load({
           }
         };
         listModels = async (apiKey, signal) => {
-          const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {};
+          const settings = useSettings2.getState();
+          const chatKey = settings.chatApiKey || apiKey;
+          const account = usesOfficialEndpoint() && usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {};
           const response = await request(modelsUrl(), {
             method: "GET",
-            headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${apiKey}` },
+            headers: "x-dsh-auth-token" in account ? account : { Authorization: `Bearer ${chatKey}` },
             signal
           });
           const body = await response.json();
@@ -39989,7 +39991,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.4.0";
+        PLUGIN_VERSION = "1.4.1";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
@@ -40425,7 +40427,8 @@ window.__ModuleLoader__.load({
             setLoading(true);
             setError(false);
             try {
-              const list3 = await listModels(useSettings2.getState().apiKey ?? "");
+              const settings = useSettings2.getState();
+              const list3 = await listModels(settings.chatApiKey || settings.apiKey || "");
               setModels(list3);
               setOpen(true);
               if (!list3.length) setError(true);

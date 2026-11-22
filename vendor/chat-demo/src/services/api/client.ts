@@ -191,11 +191,17 @@ export type ModelInfo = {
  * 账号登录态或手填 Key 都由 authedRequest 统一附带凭据。
  */
 export const listModels = async (apiKey: string, signal?: AbortSignal): Promise<ModelInfo[]> => {
-  // 与 verifyApiKey 一致：账号登录用账号 token，手填 Key 用 Bearer。
-  const account = usesAccountAuth() ? await accountAuthHeaders(inferenceOrigin()) : {}
+  // 模型列表跟随对话接口：自定义接口用它的 Key，官方接口用账号 token 或官方 Key。
+  const settings = useSettings.getState()
+  const chatKey = settings.chatApiKey || apiKey
+  const account = usesOfficialEndpoint() && usesAccountAuth()
+    ? await accountAuthHeaders(inferenceOrigin())
+    : {}
   const response = await request(modelsUrl(), {
     method: 'GET',
-    headers: 'x-dsh-auth-token' in account ? account : { Authorization: `Bearer ${apiKey}` },
+    headers: 'x-dsh-auth-token' in account
+      ? account
+      : { Authorization: `Bearer ${chatKey}` },
     signal,
   })
   const body = (await response.json()) as { data?: unknown }

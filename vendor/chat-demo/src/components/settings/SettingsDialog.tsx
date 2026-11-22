@@ -437,7 +437,8 @@ const ModelSetting = () => {
     setLoading(true)
     setError(false)
     try {
-      const list = await listModels(useSettings.getState().apiKey ?? '')
+      const settings = useSettings.getState()
+      const list = await listModels(settings.chatApiKey || settings.apiKey || '')
       setModels(list)
       setOpen(true)
       if (!list.length) setError(true)
