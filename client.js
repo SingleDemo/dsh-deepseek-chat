@@ -5468,9 +5468,10 @@ window.__ModuleLoader__.load({
                       ...initial.thinking ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {},
                       tools: serverTools(searchEnabled)
                     } : {
-                      // Anthropic 兼容端点：max_tokens 必填，显式关闭思考避免长时间等待。
-                      max_tokens: 2048,
-                      thinking: { type: "disabled" }
+                      // 兼容端点：max_tokens 必填；DeepSeek 系模型沿用同一套思考与强度设定。
+                      max_tokens: isDeepSeekModel(resolved.model) ? 4096 : 2048,
+                      thinking: { type: initial.thinking ? "enabled" : "disabled" },
+                      ...initial.thinking && isDeepSeekModel(resolved.model) ? { output_config: { effort: useSettings2.getState().thinkingEffort } } : {}
                     },
                     ...titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}
                   },
@@ -40332,7 +40333,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.5.3";
+        PLUGIN_VERSION = "1.6.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");

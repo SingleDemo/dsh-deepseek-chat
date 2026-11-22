@@ -1162,9 +1162,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
                 tools: serverTools(searchEnabled),
               }
               : {
-                // Anthropic 兼容端点：max_tokens 必填，显式关闭思考避免长时间等待。
-                max_tokens: 2048,
-                thinking: { type: 'disabled' },
+                // 兼容端点：max_tokens 必填；DeepSeek 系模型沿用同一套思考与强度设定。
+                max_tokens: isDeepSeekModel(resolved.model) ? 4096 : 2048,
+                thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
+                ...(initial.thinking && isDeepSeekModel(resolved.model)
+                  ? { output_config: { effort: useSettings.getState().thinkingEffort } }
+                  : {}),
               }),
             ...(titleRequests.has(controller) && resolved.extended ? { title: { enabled: true } } : {}),
           },
