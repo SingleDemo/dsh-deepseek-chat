@@ -2267,14 +2267,7 @@ window.__ModuleLoader__.load({
       const MAX_TOOL_ROUNDS = 4;
       for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
         const offerTools = round < MAX_TOOL_ROUNDS;
-        const requestBody = offerTools ? {
-          ...body,
-          messages,
-          tools: RELAY_TOOLS,
-          // 工具轮只做决策，不需要最高强度：用低强度避免中转站长时间思考甚至断流；
-          // 最后一轮才用用户设定的强度生成正式回答。
-          ...body.output_config ? { output_config: { effort: "low" } } : {}
-        } : {
+        const requestBody = offerTools ? { ...body, messages, tools: RELAY_TOOLS } : {
           ...body,
           messages,
           // 最后一轮不再给工具，并在提示里明确要求直接作答。
@@ -40555,7 +40548,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.12.1";
+        PLUGIN_VERSION = "1.12.2";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");

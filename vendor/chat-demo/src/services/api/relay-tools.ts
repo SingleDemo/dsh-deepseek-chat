@@ -269,14 +269,7 @@ export async function* streamWithRelayTools(
     // 最后一轮不再声明工具，逼模型给出最终回答，而不是继续调用。
     const offerTools = round < MAX_TOOL_ROUNDS
     const requestBody = offerTools
-      ? {
-        ...body,
-        messages,
-        tools: RELAY_TOOLS,
-        // 工具轮只做决策，不需要最高强度：用低强度避免中转站长时间思考甚至断流；
-        // 最后一轮才用用户设定的强度生成正式回答。
-        ...(body.output_config ? { output_config: { effort: 'low' } } : {}),
-      }
+      ? { ...body, messages, tools: RELAY_TOOLS }
       : {
         ...body,
         messages,
