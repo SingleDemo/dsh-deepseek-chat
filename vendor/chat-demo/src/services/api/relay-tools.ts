@@ -269,7 +269,14 @@ export async function* streamWithRelayTools(
     // 最后一轮不再声明工具，逼模型给出最终回答，而不是继续调用。
     const offerTools = round < MAX_TOOL_ROUNDS
     const requestBody = offerTools
-      ? { ...body, messages, tools: RELAY_TOOLS }
+      ? {
+        ...body,
+        messages,
+        tools: RELAY_TOOLS,
+        // 工具轮只做决策，不需要最高强度：用低强度避免中转站长时间思考甚至断流；
+        // 最后一轮才用用户设定的强度生成正式回答。
+        ...(body.output_config ? { output_config: { effort: 'low' } } : {}),
+      }
       : {
         ...body,
         messages,
@@ -299,7 +306,24 @@ export async function* streamWithRelayTools(
         const delta = (event as unknown as { delta?: { stop_reason?: string } }).delta
         if (delta?.stop_reason) stopReason = delta.stop_reason
       }
-      // 每一轮都实时下发：思考过程与中间正文都可视（与 pi 的 message_update 一致）。
+      // 每一轮都实时下发。中间轮是"过程"而不是答案：把它的正文映射成思考块，
+      // 界面就会显示成可折叠的「已思考」；最终轮保持正文。
+      if (offerTools) {
+        if (event.type === 'content_block_start') {
+          const block = (event as unknown as { content_block?: { type?: string; text?: string } }).content_block
+          if (block && block.type === 'text') {
+            yield { ...event, content_block: { type: 'thinking', thinking: block.text ?? '' } } as unknown as MessageStreamEvent
+            continue
+          }
+        }
+        if (event.type === 'content_block_delta') {
+          const delta = (event as unknown as { delta?: { type?: string; text?: string } }).delta
+          if (delta && delta.type === 'text_delta') {
+            yield { ...event, delta: { type: 'thinking_delta', thinking: delta.text ?? '' } } as unknown as MessageStreamEvent
+            continue
+          }
+        }
+      }
       yield event
     }
     offset = roundBase + roundBlocks
