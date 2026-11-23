@@ -53,6 +53,21 @@ type ToolCall = { id: string; name: string; input: Record<string, unknown> }
 
 type ToolOutcome = { blocks: ReplyBlock[]; result: string; failed: boolean }
 
+/** 失败/无结果时也要发结果块：否则界面会把"没有结果"渲染成"联网搜索暂不可用"。 */
+const searchErrorBlock = (id: string): ReplyBlock => ({
+  type: 'web_search_tool_result',
+  tool_use_id: id,
+  content: [{ type: 'web_search_tool_result_error', error_code: 'unavailable' }],
+  kind: 'search',
+} as unknown as ReplyBlock)
+
+const fetchErrorBlock = (id: string): ReplyBlock => ({
+  type: 'web_fetch_tool_result',
+  tool_use_id: id,
+  content: { type: 'web_fetch_tool_result_error', error_code: 'url_not_accessible' },
+  kind: 'read_link',
+} as unknown as ReplyBlock)
+
 const randomHex = (): string => {
   const bytes = new Uint8Array(6)
   crypto.getRandomValues(bytes)
@@ -155,7 +170,7 @@ const runTool = async (
       ? call.input.url.trim()
       : linkIn(fallbackQuery)
     if (!url) {
-      return { blocks: [], result: 'read_url 缺少合法链接。请改用 web_search，或用用户消息里的链接重试。', failed: true }
+      return { blocks: [fetchErrorBlock(call.id)], result: 'read_url 缺少合法链接。请改用 web_search，或用用户消息里的链接重试。', failed: true }
     }
     try {
       const page = await callFetch(url, signal)
@@ -181,35 +196,42 @@ const runTool = async (
         failed: false,
       }
     } catch {
-      return { blocks: [], result: '读取该链接失败，请说明无法访问，并基于已搜索到的信息回答。', failed: true }
+      return { blocks: [fetchErrorBlock(call.id)], result: '读取该链接失败，请说明无法访问，并基于已搜索到的信息回答。', failed: true }
     }
   }
   if (call.name !== 'web_search') {
-    return { blocks: [], result: `未知工具 ${call.name}。只能用 web_search。`, failed: true }
+    return { blocks: [searchErrorBlock(call.id)], result: `未知工具 ${call.name}。只能用 web_search。`, failed: true }
   }
   const query = typeof call.input.query === 'string' && call.input.query.trim()
     ? call.input.query.trim()
     : fallbackQuery.trim()
   if (!query) {
-    return { blocks: [], result: 'web_search 缺少 query 参数，请补上关键词后重试。', failed: true }
+    return { blocks: [searchErrorBlock(call.id)], result: 'web_search 缺少 query 参数，请补上关键词后重试。', failed: true }
   }
-  try {
-    const { sources, text } = await callSearch(query, signal)
-    return {
-      blocks: [
-        {
-          type: 'web_search_tool_result',
-          tool_use_id: call.id,
-          content: sources,
-          kind: 'search',
-        } as unknown as ReplyBlock,
-      ],
-      result: text ? `搜索「${query}」的结果：\n${text}` : `搜索「${query}」没有返回结果，请换个说法再搜一次。`,
-      failed: sources.length === 0,
+  // Search API 偶发失败：失败一次就重试一次，避免"明明拿到了网页却显示暂不可用"。
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const { sources, text } = await callSearch(query, signal)
+      if (sources.length === 0 && attempt === 0) continue
+      return {
+        blocks: [
+          {
+            type: 'web_search_tool_result',
+            tool_use_id: call.id,
+            content: sources,
+            kind: 'search',
+          } as unknown as ReplyBlock,
+        ],
+        result: text ? `搜索「${query}」的结果：\n${text}` : `搜索「${query}」没有返回结果，请换个说法再搜一次。`,
+        failed: sources.length === 0,
+      }
+    } catch {
+      if (attempt === 1) {
+        return { blocks: [searchErrorBlock(call.id)], result: '搜索失败，请如实说明无法联网，并基于已有知识回答。', failed: true }
+      }
     }
-  } catch {
-    return { blocks: [], result: '搜索失败，请如实说明无法联网，并基于已有知识回答。', failed: true }
   }
+  return { blocks: [searchErrorBlock(call.id)], result: '搜索失败。', failed: true }
 }
 
 /**
@@ -297,11 +319,11 @@ export async function* runRelayAgentLoop(
     }
 
     const outcomes: ToolOutcome[] = truncated
-      ? plans.map(() => ({ blocks: [] as ReplyBlock[], result: '工具参数被输出上限截断，请用更短的参数重新调用。', failed: true }))
+      ? plans.map((plan) => ({ blocks: [searchErrorBlock(plan.id)], result: '工具参数被输出上限截断，请用更短的参数重新调用。', failed: true }))
       : await Promise.all(
         plans.map((plan) =>
           runTool(plan.call, signal, queryFallback).catch(() => ({
-            blocks: [] as ReplyBlock[],
+            blocks: [searchErrorBlock(plan.id)],
             result: '工具执行异常，请如实说明无法联网。',
             failed: true,
           }))

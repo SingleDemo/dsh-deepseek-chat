@@ -2327,10 +2327,10 @@ window.__ModuleLoader__.load({
           yield { type: "content_block_start", index: index2, content_block: plan.block };
           yield { type: "content_block_stop", index: index2 };
         }
-        const outcomes = truncated ? plans.map(() => ({ blocks: [], result: "\u5DE5\u5177\u53C2\u6570\u88AB\u8F93\u51FA\u4E0A\u9650\u622A\u65AD\uFF0C\u8BF7\u7528\u66F4\u77ED\u7684\u53C2\u6570\u91CD\u65B0\u8C03\u7528\u3002", failed: true })) : await Promise.all(
+        const outcomes = truncated ? plans.map((plan) => ({ blocks: [searchErrorBlock(plan.id)], result: "\u5DE5\u5177\u53C2\u6570\u88AB\u8F93\u51FA\u4E0A\u9650\u622A\u65AD\uFF0C\u8BF7\u7528\u66F4\u77ED\u7684\u53C2\u6570\u91CD\u65B0\u8C03\u7528\u3002", failed: true })) : await Promise.all(
           plans.map(
             (plan) => runTool(plan.call, signal, queryFallback).catch(() => ({
-              blocks: [],
+              blocks: [searchErrorBlock(plan.id)],
               result: "\u5DE5\u5177\u6267\u884C\u5F02\u5E38\uFF0C\u8BF7\u5982\u5B9E\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002",
               failed: true
             }))
@@ -2371,7 +2371,7 @@ window.__ModuleLoader__.load({
       const lastUser = [...messages].reverse().find((message2) => message2?.role === "user");
       yield* runRelayAgentLoop(body, signal, textOf(lastUser?.content));
     }
-    var WEB_SEARCH, READ_URL, randomHex, toolId, officialAuth, linkIn, textOf, useBlock, callSearch, callFetch, runTool;
+    var WEB_SEARCH, READ_URL, searchErrorBlock, fetchErrorBlock, randomHex, toolId, officialAuth, linkIn, textOf, useBlock, callSearch, callFetch, runTool;
     var init_relay_tools = __esm({
       "vendor/chat-demo/src/services/api/relay-tools.ts"() {
         init_react_shim();
@@ -2396,6 +2396,18 @@ window.__ModuleLoader__.load({
             required: ["url"]
           }
         };
+        searchErrorBlock = (id) => ({
+          type: "web_search_tool_result",
+          tool_use_id: id,
+          content: [{ type: "web_search_tool_result_error", error_code: "unavailable" }],
+          kind: "search"
+        });
+        fetchErrorBlock = (id) => ({
+          type: "web_fetch_tool_result",
+          tool_use_id: id,
+          content: { type: "web_fetch_tool_result_error", error_code: "url_not_accessible" },
+          kind: "read_link"
+        });
         randomHex = () => {
           const bytes = new Uint8Array(6);
           crypto.getRandomValues(bytes);
@@ -2477,7 +2489,7 @@ window.__ModuleLoader__.load({
           if (call.name === "read_url") {
             const url = typeof call.input.url === "string" && /^https?:\/\//i.test(call.input.url) ? call.input.url.trim() : linkIn(fallbackQuery);
             if (!url) {
-              return { blocks: [], result: "read_url \u7F3A\u5C11\u5408\u6CD5\u94FE\u63A5\u3002\u8BF7\u6539\u7528 web_search\uFF0C\u6216\u7528\u7528\u6237\u6D88\u606F\u91CC\u7684\u94FE\u63A5\u91CD\u8BD5\u3002", failed: true };
+              return { blocks: [fetchErrorBlock(call.id)], result: "read_url \u7F3A\u5C11\u5408\u6CD5\u94FE\u63A5\u3002\u8BF7\u6539\u7528 web_search\uFF0C\u6216\u7528\u7528\u6237\u6D88\u606F\u91CC\u7684\u94FE\u63A5\u91CD\u8BD5\u3002", failed: true };
             }
             try {
               const page = await callFetch(url, signal);
@@ -2504,34 +2516,40 @@ window.__ModuleLoader__.load({
                 failed: false
               };
             } catch {
-              return { blocks: [], result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\uFF0C\u5E76\u57FA\u4E8E\u5DF2\u641C\u7D22\u5230\u7684\u4FE1\u606F\u56DE\u7B54\u3002", failed: true };
+              return { blocks: [fetchErrorBlock(call.id)], result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\uFF0C\u5E76\u57FA\u4E8E\u5DF2\u641C\u7D22\u5230\u7684\u4FE1\u606F\u56DE\u7B54\u3002", failed: true };
             }
           }
           if (call.name !== "web_search") {
-            return { blocks: [], result: `\u672A\u77E5\u5DE5\u5177 ${call.name}\u3002\u53EA\u80FD\u7528 web_search\u3002`, failed: true };
+            return { blocks: [searchErrorBlock(call.id)], result: `\u672A\u77E5\u5DE5\u5177 ${call.name}\u3002\u53EA\u80FD\u7528 web_search\u3002`, failed: true };
           }
           const query3 = typeof call.input.query === "string" && call.input.query.trim() ? call.input.query.trim() : fallbackQuery.trim();
           if (!query3) {
-            return { blocks: [], result: "web_search \u7F3A\u5C11 query \u53C2\u6570\uFF0C\u8BF7\u8865\u4E0A\u5173\u952E\u8BCD\u540E\u91CD\u8BD5\u3002", failed: true };
+            return { blocks: [searchErrorBlock(call.id)], result: "web_search \u7F3A\u5C11 query \u53C2\u6570\uFF0C\u8BF7\u8865\u4E0A\u5173\u952E\u8BCD\u540E\u91CD\u8BD5\u3002", failed: true };
           }
-          try {
-            const { sources, text: text9 } = await callSearch(query3, signal);
-            return {
-              blocks: [
-                {
-                  type: "web_search_tool_result",
-                  tool_use_id: call.id,
-                  content: sources,
-                  kind: "search"
-                }
-              ],
-              result: text9 ? `\u641C\u7D22\u300C${query3}\u300D\u7684\u7ED3\u679C\uFF1A
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              const { sources, text: text9 } = await callSearch(query3, signal);
+              if (sources.length === 0 && attempt === 0) continue;
+              return {
+                blocks: [
+                  {
+                    type: "web_search_tool_result",
+                    tool_use_id: call.id,
+                    content: sources,
+                    kind: "search"
+                  }
+                ],
+                result: text9 ? `\u641C\u7D22\u300C${query3}\u300D\u7684\u7ED3\u679C\uFF1A
     ${text9}` : `\u641C\u7D22\u300C${query3}\u300D\u6CA1\u6709\u8FD4\u56DE\u7ED3\u679C\uFF0C\u8BF7\u6362\u4E2A\u8BF4\u6CD5\u518D\u641C\u4E00\u6B21\u3002`,
-              failed: sources.length === 0
-            };
-          } catch {
-            return { blocks: [], result: "\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u5982\u5B9E\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\uFF0C\u5E76\u57FA\u4E8E\u5DF2\u6709\u77E5\u8BC6\u56DE\u7B54\u3002", failed: true };
+                failed: sources.length === 0
+              };
+            } catch {
+              if (attempt === 1) {
+                return { blocks: [searchErrorBlock(call.id)], result: "\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u5982\u5B9E\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\uFF0C\u5E76\u57FA\u4E8E\u5DF2\u6709\u77E5\u8BC6\u56DE\u7B54\u3002", failed: true };
+              }
+            }
           }
+          return { blocks: [searchErrorBlock(call.id)], result: "\u641C\u7D22\u5931\u8D25\u3002", failed: true };
         };
       }
     });
@@ -40510,7 +40528,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.13.0";
+        PLUGIN_VERSION = "1.13.1";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
