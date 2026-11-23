@@ -2258,38 +2258,28 @@ window.__ModuleLoader__.load({
     });
     
     // vendor/chat-demo/src/services/api/relay-tools.ts
-    async function* streamWithRelayTools(body, signal) {
+    async function* runRelayAgentLoop(body, signal, queryFallback) {
       const messages = Array.isArray(body.messages) ? [...body.messages] : [];
-      const lastUser = [...body.messages ?? []].reverse().find((message2) => message2?.role === "user");
-      const fallback = typeof lastUser?.content === "string" ? lastUser.content : Array.isArray(lastUser?.content) ? lastUser.content.filter((block) => block?.type === "text").map((block) => block.text ?? "").join("\n") : "";
-      let offset = 0;
+      const tools = linkIn(queryFallback) ? [WEB_SEARCH, READ_URL] : [WEB_SEARCH];
+      const MAX_ROUNDS = 4;
       let failedRounds = 0;
-      const MAX_TOOL_ROUNDS = 4;
-      for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
-        const offerTools = round < MAX_TOOL_ROUNDS;
-        const requestBody = offerTools ? { ...body, messages, tools: RELAY_TOOLS } : {
+      let toolIndex = 0;
+      for (let round = 0; round <= MAX_ROUNDS; round += 1) {
+        const offerTools = round < MAX_ROUNDS;
+        const requestBody = offerTools ? { ...body, messages, tools } : {
           ...body,
           messages,
-          // 最后一轮不再给工具，并在提示里明确要求直接作答。
           system: `${String(body.system ?? "")}
     
-    \u672C\u8F6E\u4E0D\u8981\u518D\u8C03\u7528\u4EFB\u4F55\u5DE5\u5177\uFF0C\u8BF7\u76F4\u63A5\u57FA\u4E8E\u5DF2\u6709\u4FE1\u606F\u7ED9\u51FA\u5B8C\u6574\u56DE\u7B54\u3002`
+    \u672C\u8F6E\u4E0D\u8981\u8C03\u7528\u4EFB\u4F55\u5DE5\u5177\uFF0C\u8BF7\u76F4\u63A5\u57FA\u4E8E\u5DF2\u6709\u4FE1\u606F\u7ED9\u51FA\u5B8C\u6574\u56DE\u7B54\u3002`
         };
         const calls = [];
-        const buffered = [];
         let stopReason;
         let sawText = false;
-        let currentRoundHadText = false;
-        let currentBlockKind = "";
-        const roundBase = offset;
-        let roundBlocks = 0;
         for await (const event of streamChatCompletion(requestBody, signal)) {
           if (event.type === "content_block_start") {
             const block = event.content_block;
-            if (block && block.type === "text") {
-              sawText = true;
-              currentRoundHadText = true;
-            }
+            if (block && block.type === "text") sawText = true;
             if (block && block.type === "tool_use" && typeof block.id === "string" && typeof block.name === "string") {
               calls.push({ id: block.id, name: block.name, input: block.input ?? {} });
             }
@@ -2316,159 +2306,135 @@ window.__ModuleLoader__.load({
           }
           yield event;
         }
-        offset = roundBase + roundBlocks;
         if (!offerTools) {
-          if (!sawText && !signal.aborted && !currentRoundHadText) {
+          if (!sawText && !signal.aborted) {
             const notice = "\u6A21\u578B\u8FD9\u4E00\u8F6E\u6CA1\u6709\u751F\u6210\u6B63\u6587\uFF0C\u8BF7\u91CD\u8BD5\uFF1B\u5982\u679C\u6301\u7EED\u51FA\u73B0\uFF0C\u5EFA\u8BAE\u5148\u5173\u95ED\u6DF1\u5EA6\u601D\u8003\u3002";
-            yield { type: "content_block_start", index: 900, content_block: { type: "text", text: notice } };
-            yield { type: "content_block_stop", index: 900 };
+            yield { type: "content_block_start", index: 800 + toolIndex++, content_block: { type: "text", text: notice } };
+            yield { type: "content_block_stop", index: 800 + toolIndex - 1 };
           }
           return;
         }
-        if (stopReason !== "tool_use" || !calls.length) {
-          for (const event of buffered) yield offsetEvent(event, offset);
-          return;
-        }
+        if (stopReason !== "tool_use" || !calls.length) return;
         const batch = calls.slice(0, 3);
+        const truncated = stopReason === "length";
         const plans = batch.map((call) => {
-          const use = buildUseBlock(call.name, call.input, fallback);
-          return { call, id: use.id, block: use.block };
+          const id = toolId(call.name === "read_url" ? "rl" : "s");
+          const query3 = typeof call.input.query === "string" ? call.input.query : queryFallback;
+          return { call, id, block: useBlock(call.name, id, call.input, query3) };
         });
         for (const plan of plans) {
-          const index2 = 800 + offset++;
+          const index2 = 800 + toolIndex++;
           yield { type: "content_block_start", index: index2, content_block: plan.block };
           yield { type: "content_block_stop", index: index2 };
         }
-        const truncated = stopReason === "length";
-        const runs = truncated ? batch.map(() => ({
-          blocks: [],
-          result: "\u5DE5\u5177\u8C03\u7528\u56E0\u8F93\u51FA\u957F\u5EA6\u88AB\u622A\u65AD\uFF0C\u53C2\u6570\u53EF\u80FD\u4E0D\u5B8C\u6574\u3002\u8BF7\u4E0D\u8981\u6267\u884C\uFF0C\u6539\u7528\u66F4\u77ED\u7684\u53C2\u6570\u91CD\u65B0\u8C03\u7528\u3002"
-        })) : await Promise.all(
+        const outcomes = truncated ? plans.map(() => ({ blocks: [], result: "\u5DE5\u5177\u53C2\u6570\u88AB\u8F93\u51FA\u4E0A\u9650\u622A\u65AD\uFF0C\u8BF7\u7528\u66F4\u77ED\u7684\u53C2\u6570\u91CD\u65B0\u8C03\u7528\u3002", failed: true })) : await Promise.all(
           plans.map(
-            (plan) => executeRelayTool(plan.call.name, plan.call.input, signal, fallback, plan.id).catch(() => ({
+            (plan) => runTool(plan.call, signal, queryFallback).catch(() => ({
               blocks: [],
-              result: "\u5DE5\u5177\u6267\u884C\u5931\u8D25\uFF0C\u8BF7\u57FA\u4E8E\u5DF2\u6709\u4FE1\u606F\u56DE\u7B54\u5E76\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002"
+              result: "\u5DE5\u5177\u6267\u884C\u5F02\u5E38\uFF0C\u8BF7\u5982\u5B9E\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002",
+              failed: true
             }))
           )
         );
+        let sources = 0;
         const resultContent = [];
         for (let i = 0; i < plans.length; i += 1) {
           const plan = plans[i];
-          const run = runs[i];
-          for (const block of run.blocks) {
-            const index2 = 800 + offset++;
+          const outcome = outcomes[i];
+          for (const block of outcome.blocks) {
+            const index2 = 800 + toolIndex++;
             yield { type: "content_block_start", index: index2, content_block: block };
             yield { type: "content_block_stop", index: index2 };
+            const content3 = block.content;
+            if (Array.isArray(content3)) sources += content3.length;
           }
-          resultContent.push({ type: "tool_result", tool_use_id: plan.id, content: run.result });
+          resultContent.push({ type: "tool_result", tool_use_id: plan.id, content: outcome.result });
         }
         messages.push({
           role: "assistant",
           content: batch.map((call) => ({ type: "tool_use", id: call.id, name: call.name, input: call.input }))
         });
-        const sources = runs.reduce(
-          (total, run) => total + run.blocks.reduce((count2, block) => {
-            const content3 = block.content;
-            return count2 + (Array.isArray(content3) ? content3.length : 0);
-          }, 0),
-          0
-        );
+        messages.push({ role: "user", content: resultContent });
         if (sources > 0 && round === 0) {
+          const index2 = 800 + toolIndex++;
           const progress = `\u{1F50E} \u5DF2\u83B7\u53D6 ${sources} \u4E2A\u7F51\u9875\uFF0C\u6A21\u578B\u6B63\u5728\u7EC4\u7EC7\u56DE\u7B54\u2026`;
-          const index2 = 800 + offset++;
           yield { type: "content_block_start", index: index2, content_block: { type: "text", text: progress } };
           yield { type: "content_block_stop", index: index2 };
         }
-        messages.push({ role: "user", content: resultContent });
-        if (runs.every((run) => run.blocks.length === 0)) {
-          failedRounds += 1;
-          if (failedRounds >= 2) return;
-        } else {
-          failedRounds = 0;
-        }
+        const allFailed = outcomes.every((outcome) => outcome.failed && outcome.blocks.length === 0);
+        failedRounds = allFailed ? failedRounds + 1 : 0;
+        if (failedRounds >= 2) return;
       }
     }
-    var RELAY_TOOLS, randomHex, toolId, officialAuth, linkFrom, queryFrom, buildUseBlock, callSearch, callFetch, executeRelayTool, offsetEvent;
+    async function* streamWithRelayTools(body, signal) {
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const lastUser = [...messages].reverse().find((message2) => message2?.role === "user");
+      yield* runRelayAgentLoop(body, signal, textOf(lastUser?.content));
+    }
+    var WEB_SEARCH, READ_URL, randomHex, toolId, officialAuth, linkIn, textOf, useBlock, callSearch, callFetch, runTool;
     var init_relay_tools = __esm({
       "vendor/chat-demo/src/services/api/relay-tools.ts"() {
         init_react_shim();
         init_client();
-        RELAY_TOOLS = [
-          {
-            name: "web_search",
-            description: "Search the web for current information. Use it when the answer needs fresh news, recent events, prices, or anything beyond the training data.",
-            input_schema: {
-              type: "object",
-              properties: {
-                query: { type: "string", description: "search keywords, can use site:/after:/before: operators" }
-              },
-              required: ["query"]
-            }
-          },
-          {
-            name: "read_url",
-            description: "Fetch and read a web page so the answer can rely on its content, e.g. when the user pasted a link.",
-            input_schema: {
-              type: "object",
-              properties: { url: { type: "string", description: "absolute http(s) url" } },
-              required: ["url"]
-            }
+        WEB_SEARCH = {
+          name: "web_search",
+          description: "Search the web for current information. Use it when the answer needs fresh news, recent events, prices, or anything beyond the training data.",
+          input_schema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "search keywords, can use site:/after:/before: operators" }
+            },
+            required: ["query"]
           }
-        ];
+        };
+        READ_URL = {
+          name: "read_url",
+          description: "Fetch and read one web page so the answer can rely on its content.",
+          input_schema: {
+            type: "object",
+            properties: { url: { type: "string", description: "absolute http(s) url" } },
+            required: ["url"]
+          }
+        };
         randomHex = () => {
           const bytes = new Uint8Array(6);
           crypto.getRandomValues(bytes);
           return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
         };
         toolId = (kind) => `srvtoolu_${kind}_${randomHex()}`;
-        officialAuth = async () => {
-          const endpoint = await officialEndpoint();
-          return endpoint.headers;
-        };
-        linkFrom = (input, fallback) => {
-          const raw = typeof input.url === "string" ? input.url.trim() : "";
-          const candidate = /^https?:\/\//i.test(raw) ? raw : (fallback.match(/https?:\/\/[^\s"'）)]+/) || [])[0];
-          return candidate;
-        };
-        queryFrom = (input, fallback) => {
-          if (typeof input.query === "string" && input.query.trim()) return input.query.trim();
-          return fallback.trim() || String(input.query ?? "");
-        };
-        buildUseBlock = (name, input, fallback = "") => {
-          if (name === "read_url") {
-            const id2 = toolId("rl");
-            const url = linkFrom(input, fallback) ?? "";
-            return {
-              id: id2,
-              block: {
-                type: "server_tool_use",
-                id: id2,
-                name: "deepseek_read_url",
-                input: { action: "read_link", url },
-                caller: { type: "direct" },
-                kind: "read_link"
-              }
-            };
+        officialAuth = async () => (await officialEndpoint()).headers;
+        linkIn = (text9) => (text9.match(/https?:\/\/[^\s"'）)]+/) || [])[0];
+        textOf = (content3) => {
+          if (typeof content3 === "string") return content3;
+          if (Array.isArray(content3)) {
+            return content3.filter((block) => block && typeof block === "object" && block.type === "text").map((block) => String(block.text ?? "")).join("\n");
           }
-          const id = toolId("s");
-          const query3 = queryFrom(input, fallback);
-          return {
-            id,
-            block: {
+          return "";
+        };
+        useBlock = (name, id, input, query3) => {
+          if (name === "read_url") {
+            return {
               type: "server_tool_use",
               id,
-              name: "deepseek_web_search",
-              input: { action: "search", queries: [query3] },
+              name: "deepseek_read_url",
+              input: { action: "read_link", url: String(input.url ?? "") },
               caller: { type: "direct" },
-              kind: "search"
-            }
+              kind: "read_link"
+            };
+          }
+          return {
+            type: "server_tool_use",
+            id,
+            name: "deepseek_web_search",
+            input: { action: "search", queries: [query3] },
+            caller: { type: "direct" },
+            kind: "search"
           };
         };
         callSearch = async (query3, signal) => {
-          const auth = await officialAuth();
           const response = await request("https://api.deepseek.com/v1/tools/search", {
             method: "POST",
-            headers: { ...auth, "content-type": "application/json" },
+            headers: { ...await officialAuth(), "content-type": "application/json" },
             body: JSON.stringify({ query: query3, count: 8, need_content: false }),
             signal
           });
@@ -2495,24 +2461,23 @@ window.__ModuleLoader__.load({
           return { sources, text: text9 };
         };
         callFetch = async (url, signal) => {
-          const auth = await officialAuth();
           const response = await request("https://api.deepseek.com/v1/tools/fetch", {
             method: "POST",
-            headers: { ...auth, "content-type": "application/json" },
+            headers: { ...await officialAuth(), "content-type": "application/json" },
             body: JSON.stringify({ url }),
             signal
           });
           const payload = await response.json();
           return {
             title: typeof payload.title === "string" ? payload.title : url,
-            text: typeof payload.content === "string" ? payload.content.slice(0, 8e3) : ""
+            content: typeof payload.content === "string" ? payload.content.slice(0, 8e3) : ""
           };
         };
-        executeRelayTool = async (name, input, signal, fallback = "", id = toolId("s")) => {
-          if (name === "read_url") {
-            const url = linkFrom(input, fallback);
+        runTool = async (call, signal, fallbackQuery) => {
+          if (call.name === "read_url") {
+            const url = typeof call.input.url === "string" && /^https?:\/\//i.test(call.input.url) ? call.input.url.trim() : linkIn(fallbackQuery);
             if (!url) {
-              return { blocks: [], result: "read_url \u9700\u8981\u4E00\u4E2A\u5408\u6CD5\u7684 http(s) \u94FE\u63A5\uFF0C\u8BF7\u6539\u7528 web_search \u6216\u8BF4\u660E\u65E0\u6CD5\u8BFB\u53D6\u3002" };
+              return { blocks: [], result: "read_url \u7F3A\u5C11\u5408\u6CD5\u94FE\u63A5\u3002\u8BF7\u6539\u7528 web_search\uFF0C\u6216\u7528\u7528\u6237\u6D88\u606F\u91CC\u7684\u94FE\u63A5\u91CD\u8BD5\u3002", failed: true };
             }
             try {
               const page = await callFetch(url, signal);
@@ -2520,7 +2485,7 @@ window.__ModuleLoader__.load({
                 blocks: [
                   {
                     type: "web_fetch_tool_result",
-                    tool_use_id: id,
+                    tool_use_id: call.id,
                     content: {
                       type: "web_fetch_result",
                       url,
@@ -2534,42 +2499,39 @@ window.__ModuleLoader__.load({
                     kind: "read_link"
                   }
                 ],
-                result: page.text ? `\u7F51\u9875\u300A${page.title}\u300B\u5185\u5BB9\uFF1A
-    ${page.text}` : "\u7F51\u9875\u5185\u5BB9\u4E3A\u7A7A"
+                result: page.content ? `\u7F51\u9875\u300A${page.title}\u300B\u5185\u5BB9\uFF1A
+    ${page.content}` : "\u7F51\u9875\u5185\u5BB9\u4E3A\u7A7A",
+                failed: false
               };
             } catch {
-              return { blocks: [], result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\u3002" };
+              return { blocks: [], result: "\u8BFB\u53D6\u8BE5\u94FE\u63A5\u5931\u8D25\uFF0C\u8BF7\u8BF4\u660E\u65E0\u6CD5\u8BBF\u95EE\uFF0C\u5E76\u57FA\u4E8E\u5DF2\u641C\u7D22\u5230\u7684\u4FE1\u606F\u56DE\u7B54\u3002", failed: true };
             }
           }
-          if (name !== "web_search") {
-            return { blocks: [], result: `\u672A\u77E5\u5DE5\u5177\uFF1A${name}\u3002\u53EF\u7528\u5DE5\u5177\u53EA\u6709 web_search \u548C read_url\u3002` };
+          if (call.name !== "web_search") {
+            return { blocks: [], result: `\u672A\u77E5\u5DE5\u5177 ${call.name}\u3002\u53EA\u80FD\u7528 web_search\u3002`, failed: true };
           }
-          const query3 = queryFrom(input, fallback);
+          const query3 = typeof call.input.query === "string" && call.input.query.trim() ? call.input.query.trim() : fallbackQuery.trim();
+          if (!query3) {
+            return { blocks: [], result: "web_search \u7F3A\u5C11 query \u53C2\u6570\uFF0C\u8BF7\u8865\u4E0A\u5173\u952E\u8BCD\u540E\u91CD\u8BD5\u3002", failed: true };
+          }
           try {
             const { sources, text: text9 } = await callSearch(query3, signal);
             return {
               blocks: [
                 {
                   type: "web_search_tool_result",
-                  tool_use_id: id,
+                  tool_use_id: call.id,
                   content: sources,
                   kind: "search"
                 }
               ],
               result: text9 ? `\u641C\u7D22\u300C${query3}\u300D\u7684\u7ED3\u679C\uFF1A
-    ${text9}` : `\u641C\u7D22\u300C${query3}\u300D\u6CA1\u6709\u8FD4\u56DE\u7ED3\u679C\u3002`
+    ${text9}` : `\u641C\u7D22\u300C${query3}\u300D\u6CA1\u6709\u8FD4\u56DE\u7ED3\u679C\uFF0C\u8BF7\u6362\u4E2A\u8BF4\u6CD5\u518D\u641C\u4E00\u6B21\u3002`,
+              failed: sources.length === 0
             };
           } catch {
-            return { blocks: [], result: "\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u57FA\u4E8E\u5DF2\u6709\u77E5\u8BC6\u56DE\u7B54\u5E76\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\u3002" };
+            return { blocks: [], result: "\u641C\u7D22\u5931\u8D25\uFF0C\u8BF7\u5982\u5B9E\u8BF4\u660E\u65E0\u6CD5\u8054\u7F51\uFF0C\u5E76\u57FA\u4E8E\u5DF2\u6709\u77E5\u8BC6\u56DE\u7B54\u3002", failed: true };
           }
-        };
-        offsetEvent = (event, offset) => {
-          if (event.type !== "content_block_start" && event.type !== "content_block_delta" && event.type !== "content_block_stop") {
-            return event;
-          }
-          const next2 = { ...event };
-          next2.index = Number(next2.index) + offset;
-          return next2;
         };
       }
     });
@@ -40548,7 +40510,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.12.2";
+        PLUGIN_VERSION = "1.13.0";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
