@@ -246,13 +246,21 @@ export async function* runRelayAgentLoop(
   const messages: unknown[] = Array.isArray(body.messages) ? [...(body.messages as unknown[])] : []
   const tools: ToolDeclaration[] = linkIn(queryFallback) ? [WEB_SEARCH, READ_URL] : [WEB_SEARCH]
   const MAX_ROUNDS = 4
-  let failedRounds = 0
+  const MAX_TOOL_CALLS = 5
   let toolIndex = 0
+  let toolCalls = 0
+  let failedRounds = 0
 
   for (let round = 0; round <= MAX_ROUNDS; round += 1) {
     const offerTools = round < MAX_ROUNDS
     const requestBody = offerTools
-      ? { ...body, messages, tools }
+      ? {
+        ...body,
+        messages,
+        tools,
+        // 明确约束检索次数，避免模型无限搜索把整轮拖满。
+        system: `${String(body.system ?? '')}\n\n这是联网检索模式。最多进行 3 次搜索，拿到足够信息后直接给出完整答案，不要反复搜索或输出思考过程。`,
+      }
       : {
         ...body,
         messages,
@@ -305,7 +313,10 @@ export async function* runRelayAgentLoop(
     // 没有工具调用 = 模型已经作答
     if (stopReason !== 'tool_use' || !calls.length) return
 
-    const batch = calls.slice(0, 3)
+    const remaining = Math.max(0, MAX_TOOL_CALLS - toolCalls)
+    if (remaining === 0) return
+    const batch = calls.slice(0, Math.min(3, remaining))
+    toolCalls += batch.length
     const truncated = stopReason === 'length'
     const plans = batch.map((call) => {
       const id = toolId(call.name === 'read_url' ? 'rl' : 's')

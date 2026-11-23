@@ -2262,11 +2262,21 @@ window.__ModuleLoader__.load({
       const messages = Array.isArray(body.messages) ? [...body.messages] : [];
       const tools = linkIn(queryFallback) ? [WEB_SEARCH, READ_URL] : [WEB_SEARCH];
       const MAX_ROUNDS = 4;
-      let failedRounds = 0;
+      const MAX_TOOL_CALLS = 5;
       let toolIndex = 0;
+      let toolCalls = 0;
+      let failedRounds = 0;
       for (let round = 0; round <= MAX_ROUNDS; round += 1) {
         const offerTools = round < MAX_ROUNDS;
-        const requestBody = offerTools ? { ...body, messages, tools } : {
+        const requestBody = offerTools ? {
+          ...body,
+          messages,
+          tools,
+          // 明确约束检索次数，避免模型无限搜索把整轮拖满。
+          system: `${String(body.system ?? "")}
+    
+    \u8FD9\u662F\u8054\u7F51\u68C0\u7D22\u6A21\u5F0F\u3002\u6700\u591A\u8FDB\u884C 3 \u6B21\u641C\u7D22\uFF0C\u62FF\u5230\u8DB3\u591F\u4FE1\u606F\u540E\u76F4\u63A5\u7ED9\u51FA\u5B8C\u6574\u7B54\u6848\uFF0C\u4E0D\u8981\u53CD\u590D\u641C\u7D22\u6216\u8F93\u51FA\u601D\u8003\u8FC7\u7A0B\u3002`
+        } : {
           ...body,
           messages,
           system: `${String(body.system ?? "")}
@@ -2315,7 +2325,10 @@ window.__ModuleLoader__.load({
           return;
         }
         if (stopReason !== "tool_use" || !calls.length) return;
-        const batch = calls.slice(0, 3);
+        const remaining = Math.max(0, MAX_TOOL_CALLS - toolCalls);
+        if (remaining === 0) return;
+        const batch = calls.slice(0, Math.min(3, remaining));
+        toolCalls += batch.length;
         const truncated = stopReason === "length";
         const plans = batch.map((call) => {
           const id = toolId(call.name === "read_url" ? "rl" : "s");
@@ -40528,7 +40541,7 @@ window.__ModuleLoader__.load({
         INDEX_URL = "https://cdn.jsdelivr.net/gh/SingleDemo/dsh-deepseek-chat@main/market/index.json";
         CACHE_KEY = "chat-demo:update-check";
         CACHE_TTL_MS = 6 * 60 * 60 * 1e3;
-        PLUGIN_VERSION = "1.13.1";
+        PLUGIN_VERSION = "1.13.2";
         compareVersions = (a2, b2) => {
           const split = (value) => {
             const [core, pre] = value.split("-");
